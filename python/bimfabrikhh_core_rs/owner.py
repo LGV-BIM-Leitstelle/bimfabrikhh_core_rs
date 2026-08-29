@@ -29,11 +29,11 @@ try:
     from pydantic import BaseModel, ConfigDict, Field
 except ModuleNotFoundError as exc:  # pragma: no cover
     raise ModuleNotFoundError(
-            'bimfabrikhh_core_rs.owner needs pydantic. Install it with `pip install "bimfabrikhh_core_rs[psets]"` or `pip install pydantic`.'
+        'bimfabrikhh_core_rs.owner needs pydantic. Install it with `pip install "bimfabrikhh_core_rs[psets]"` or `pip install pydantic`.'
     ) from exc
 
 __all__ = [
-        "OwnerIdentity",
+    "OwnerIdentity",
 ]
 
 

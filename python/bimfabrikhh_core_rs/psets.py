@@ -15,7 +15,7 @@ per building.
         properties={
             "_IDEbene1":       Const("Stadtmodell"),
             "_StadtmodellLoD": Attr("lod"),
-            "_Dachform":       Attr("roof_type", catalog="dachform", default="undefiniert"),
+            "_Dachform":       Attr("roof_type", catalog="dachform"),
         },
     )
     cityjson_to_ifc(page, out, epsg=25832, psets=[objektinformation])
@@ -37,34 +37,34 @@ try:
     from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 except ModuleNotFoundError as exc:  # pragma: no cover
     raise ModuleNotFoundError(
-            'bimfabrikhh_core_rs.psets needs pydantic. Install it with `pip install "bimfabrikhh_core_rs[psets]"` or `pip install pydantic`.'
+        'bimfabrikhh_core_rs.psets needs pydantic. Install it with `pip install "bimfabrikhh_core_rs[psets]"` or `pip install pydantic`.'
     ) from exc
 
 __all__ = [
-        "Attr",
-        "Const",
-        "PsetSpec",
-        "Quantity",
-        "ATTR_KEYS",
-        "QUANTITY_KEYS",
-        "bimfabrik_quantities",
-        "hamburg_defaults",
-        "hamburg_hyperlink",
-        "hamburg_objektinformation",
-        "specs_from_json",
-        "specs_to_json",
+    "Attr",
+    "Const",
+    "PsetSpec",
+    "Quantity",
+    "ATTR_KEYS",
+    "QUANTITY_KEYS",
+    "bimfabrik_quantities",
+    "hamburg_defaults",
+    "hamburg_hyperlink",
+    "hamburg_objektinformation",
+    "specs_from_json",
+    "specs_to_json",
 ]
 
 #: Building fields an :class:`Attr` may read. ``extra:<name>`` reaches any
 #: attribute the parser kept but does not model explicitly.
 ATTR_KEYS = (
-        "id",
-        "gml_name",
-        "lod",
-        "function",
-        "measured_height",
-        "storeys_above_ground",
-        "roof_type",
+    "id",
+    "gml_name",
+    "lod",
+    "function",
+    "measured_height",
+    "storeys_above_ground",
+    "roof_type",
 )
 
 #: Geometric quantities a :class:`Quantity` may read. In mesh mode ``area`` and
@@ -114,7 +114,7 @@ class Attr(BaseModel):
     @classmethod
     def _known_key(cls, v: str) -> str:
         if v.startswith("extra:"):
-            if not v[len("extra:"):]:
+            if not v[len("extra:") :]:
                 raise ValueError("'extra:' needs an attribute name after the colon")
             return v
         if v not in ATTR_KEYS:
@@ -168,71 +168,75 @@ class PsetSpec(BaseModel):
         offenders = [n for n, v in self.properties.items() if isinstance(v, Quantity)]
         if offenders:
             raise ValueError(
-                    f"pset {self.name!r} has scope 'building' but reads geometry in "
-                    f"{', '.join(offenders)}; quantities only resolve with scope='surface'"
+                f"pset {self.name!r} has scope 'building' but reads geometry in "
+                f"{', '.join(offenders)}; quantities only resolve with scope='surface'"
             )
         return self
 
     def to_wire(self) -> dict:
         """The plain-data form Rust consumes. Order of properties is preserved."""
         return {
-                "name": self.name,
-                "scope": self.scope,
-                "properties": [[k, val.model_dump()] for k, val in self.properties.items()],
+            "name": self.name,
+            "scope": self.scope,
+            "properties": [[k, val.model_dump()] for k, val in self.properties.items()],
         }
 
 
 def hamburg_objektinformation(
-        *,
-        id_ebene: str = "Stadtmodell",
-        loi: str = "300",
-        bemerkung: str = "undefiniert",
+    *,
+    id_ebene: str = "Stadtmodell",
+    loi: str = "300",
+    bemerkung: str = "undefiniert",
 ) -> PsetSpec:
-    """``Pset_Objektinformation`` as the built-in Hamburg export writes it."""
+    """``Pset_Objektinformation`` as the built-in Hamburg export writes it.
+
+    Source-backed ``Attr`` keys have no ``default``: if the GML/CityJSON field
+    is missing, that property is omitted from the IFC.
+    """
     return PsetSpec(
-            name="Pset_Objektinformation",
-            scope="building",
-            properties={
-                    "_IDEbene1": Const(id_ebene),
-                    "_IDEbene2": Const(id_ebene),
-                    "_IDEbene3": Const(id_ebene),
-                    "_LoI": Const(loi),
-                    "_Bemerkung": Const(bemerkung),
-                    "_StadtmodellLoD": Attr("lod"),
-                    "_FunktionGebaeude": Attr("function", catalog="funktion", default="undefiniert"),
-                    "_RelativeHoehe": Attr("measured_height", default="0.0"),
-                    "_AnzahlObergeschoss": Attr("storeys_above_ground", default="1"),
-                    "_Dachform": Attr("roof_type", catalog="dachform", default="undefiniert"),
-            },
+        name="Pset_Objektinformation",
+        scope="building",
+        properties={
+            "_IDEbene1": Const(id_ebene),
+            "_IDEbene2": Const(id_ebene),
+            "_IDEbene3": Const(id_ebene),
+            "_LoI": Const(loi),
+            "_Bemerkung": Const(bemerkung),
+            "_StadtmodellLoD": Attr("lod"),
+            "_FunktionGebaeude": Attr("function", catalog="funktion"),
+            "_RelativeHoehe": Attr("measured_height"),
+            "_AnzahlObergeschoss": Attr("storeys_above_ground"),
+            "_Dachform": Attr("roof_type", catalog="dachform"),
+        },
     )
 
 
 def hamburg_hyperlink(
-        url: str = "www.bim.hamburg.de",
-        remark: str = "Link zur Homepage von BIM.Hamburg",
+    url: str = "www.bim.hamburg.de",
+    remark: str = "Link zur Homepage von BIM.Hamburg",
 ) -> PsetSpec:
     """``Pset_Hyperlink`` as the built-in Hamburg export writes it."""
     return PsetSpec(
-            name="Pset_Hyperlink",
-            scope="building",
-            properties={
-                    "_Hyperlink_001": Const(url),
-                    "_Hyperlink_001_Bemerkung": Const(remark),
-            },
+        name="Pset_Hyperlink",
+        scope="building",
+        properties={
+            "_Hyperlink_001": Const(url),
+            "_Hyperlink_001_Bemerkung": Const(remark),
+        },
     )
 
 
 def bimfabrik_quantities() -> PsetSpec:
     """``BIMFabrikHH_Quantities`` as the built-in export writes it."""
     return PsetSpec(
-            name="BIMFabrikHH_Quantities",
-            scope="surface",
-            properties={
-                    "GrossArea": Quantity("area", decimals=4),
-                    "Perimeter": Quantity("perimeter", decimals=4),
-                    "Tilt": Quantity("tilt", decimals=2),
-                    "SurfaceType": Quantity("surface_type"),
-            },
+        name="BIMFabrikHH_Quantities",
+        scope="surface",
+        properties={
+            "GrossArea": Quantity("area", decimals=4),
+            "Perimeter": Quantity("perimeter", decimals=4),
+            "Tilt": Quantity("tilt", decimals=2),
+            "SurfaceType": Quantity("surface_type"),
+        },
     )
 
 

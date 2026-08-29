@@ -25,23 +25,23 @@ try:
     from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 except ModuleNotFoundError as exc:  # pragma: no cover
     raise ModuleNotFoundError(
-            "bimfabrikhh_core_rs.ifc_types needs pydantic. Install it with "
-            '`pip install "bimfabrikhh_core_rs[psets]"` or `pip install pydantic`.'
+        "bimfabrikhh_core_rs.ifc_types needs pydantic. Install it with "
+        '`pip install "bimfabrikhh_core_rs[psets]"` or `pip install pydantic`.'
     ) from exc
 
 __all__ = [
-        "IfcTypeMap",
-        "SURFACE_KEYS",
-        "hamburg_ifc_types",
+    "IfcTypeMap",
+    "SURFACE_KEYS",
+    "hamburg_ifc_types",
 ]
 
 SURFACE_KEYS = (
-        "RoofSurface",
-        "WallSurface",
-        "GroundSurface",
-        "OuterFloorSurface",
-        "OuterCeilingSurface",
-        "Building",
+    "RoofSurface",
+    "WallSurface",
+    "GroundSurface",
+    "OuterFloorSurface",
+    "OuterCeilingSurface",
+    "Building",
 )
 
 
@@ -89,10 +89,10 @@ class IfcTypeMap(BaseModel):
 def hamburg_ifc_types() -> IfcTypeMap:
     """The usual CityGML LoD2 surface map. Pass it explicitly; Rust has no copy."""
     return IfcTypeMap(
-            RoofSurface="IfcRoof",
-            WallSurface="IfcWall",
-            GroundSurface="IfcSlab",
-            OuterFloorSurface="IfcSlab",
-            OuterCeilingSurface="IfcCovering",
-            Building="IfcBuildingElementProxy",
+        RoofSurface="IfcRoof",
+        WallSurface="IfcWall",
+        GroundSurface="IfcSlab",
+        OuterFloorSurface="IfcSlab",
+        OuterCeilingSurface="IfcCovering",
+        Building="IfcBuildingElementProxy",
     )
