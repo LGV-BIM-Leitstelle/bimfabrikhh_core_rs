@@ -1,0 +1,291 @@
+//! The pyo3 surface. Every function here is a thin wrapper over [`crate::api`].
+
+mod convert;
+
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyList, PyModule, PyTuple};
+
+use crate::api::{self, ExportOptions};
+use crate::cityjson::{parse_cityjson_file, parse_cityjson_str};
+use crate::parse::parse_gml_file;
+use crate::types::ParsedBuilding;
+use convert::{
+    basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, gml_paths_from_py,
+    ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py,
+};
+
+type Bbox = Option<(f64, f64, f64, f64)>;
+
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(parse_gml, m)?)?;
+    m.add_function(wrap_pyfunction!(write_ifc, m)?)?;
+    m.add_function(wrap_pyfunction!(gml_to_ifc, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_cityjson, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_cityjson_text, m)?)?;
+    m.add_function(wrap_pyfunction!(cityjson_to_ifc, m)?)?;
+    m.add_function(wrap_pyfunction!(cityjson_to_ifc_blocks, m)?)?;
+    Ok(())
+}
+
+fn buildings_to_py(parsed: Result<Vec<ParsedBuilding>, String>) -> PyResult<Vec<PyObject>> {
+    let buildings = parsed.map_err(PyValueError::new_err)?;
+    Python::with_gil(|py| buildings.iter().map(|b| building_to_py(py, b)).collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn export_options(
+    mode: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    owner_history: bool,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<&Bound<'_, PyAny>>,
+    ifc_types: Option<&Bound<'_, PyAny>>,
+    colors: Option<&Bound<'_, PyAny>>,
+    owner: Option<&Bound<'_, PyAny>>,
+) -> PyResult<ExportOptions> {
+    Ok(ExportOptions {
+        mode: mode.into(),
+        project_name: project_name.into(),
+        site_name: site_name.into(),
+        epsg,
+        styles,
+        owner_history,
+        owner: owner_from_py(owner)?,
+        basepoint: basepoint_xy(basepoint)?,
+        psets: pset_specs_from_py(psets)?,
+        ifc_types: ifc_types_from_py(ifc_types)?,
+        colors: colors_from_py(colors)?,
+    })
+}
+
+/// Shared body of `cityjson_to_ifc` and `cityjson_to_ifc_blocks`.
+#[allow(clippy::too_many_arguments)]
+fn cityjson_export(
+    source: &Bound<'_, PyAny>,
+    ifc_path: &str,
+    building_id_filter: Option<&str>,
+    mode: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    owner_history: bool,
+    bbox_epsg: Bbox,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<&Bound<'_, PyAny>>,
+    ifc_types: Option<&Bound<'_, PyAny>>,
+    colors: Option<&Bound<'_, PyAny>>,
+    owner: Option<&Bound<'_, PyAny>>,
+) -> PyResult<String> {
+    let src = cityjson_source_from_py(source)?;
+    let opts = export_options(
+        mode,
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        owner_history,
+        basepoint,
+        psets,
+        ifc_types,
+        colors,
+        owner,
+    )?;
+    api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, &opts)
+        .map_err(PyValueError::new_err)
+}
+
+/// Parse CityGML into building dicts.
+#[pyfunction]
+#[pyo3(signature = (path, building_id_filter=None, bbox_epsg=None))]
+fn parse_gml(path: &str, building_id_filter: Option<&str>, bbox_epsg: Bbox) -> PyResult<Vec<PyObject>> {
+    buildings_to_py(parse_gml_file(path, building_id_filter, bbox_epsg))
+}
+
+/// Parse a CityJSON file into building dicts (same shape as ``parse_gml``).
+#[pyfunction]
+#[pyo3(signature = (path, building_id_filter=None, bbox_epsg=None))]
+fn parse_cityjson(path: &str, building_id_filter: Option<&str>, bbox_epsg: Bbox) -> PyResult<Vec<PyObject>> {
+    buildings_to_py(parse_cityjson_file(path, building_id_filter, bbox_epsg))
+}
+
+/// Parse CityJSON from a string. HTTP stays outside this package.
+#[pyfunction]
+#[pyo3(signature = (text, building_id_filter=None, bbox_epsg=None))]
+fn parse_cityjson_text(text: &str, building_id_filter: Option<&str>, bbox_epsg: Bbox) -> PyResult<Vec<PyObject>> {
+    buildings_to_py(parse_cityjson_str(text, building_id_filter, bbox_epsg))
+}
+
+/// Write IFC4 STEP from a list of product dicts.
+#[pyfunction]
+#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, basepoint=None, owner=None))]
+#[allow(clippy::too_many_arguments)]
+fn write_ifc(
+    products: Bound<'_, PyList>,
+    path: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    owner_history: bool,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    owner: Option<Bound<'_, PyAny>>,
+) -> PyResult<String> {
+    let parsed = products_from_py(&products)?;
+    let opts = export_options(
+        "typed",
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        owner_history,
+        basepoint,
+        None,
+        None,
+        None,
+        owner.as_ref(),
+    )?;
+    api::products_to_ifc(parsed, path, &opts).map_err(PyValueError::new_err)
+}
+
+/// Parse CityGML (one file or many) and write a single IFC. `mode` is `"typed"` or `"mesh"`.
+///
+/// `psets` takes `bimfabrikhh_core_rs.psets.PsetSpec` objects (or their dicts).
+/// Omit it and the IFC is written without property sets.
+/// `ifc_types` maps CityGML/CityJSON surface types to IFC entities
+/// (`bimfabrikhh_core_rs.ifc_types.IfcTypeMap` or a dict). Omit it and every product is
+/// `IfcBuildingElementProxy`.
+/// `owner` overlays `IfcPerson` / `IfcOrganization` / `IfcApplication`
+/// (`bimfabrikhh_core_rs.owner.OwnerIdentity` or a dict). Omit it and the Rust default
+/// is used. `owner_history=false` writes no owner-history block.
+#[pyfunction]
+#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None))]
+#[allow(clippy::too_many_arguments)]
+fn gml_to_ifc(
+    gml_path: Bound<'_, PyAny>,
+    ifc_path: &str,
+    building_id_filter: Option<&str>,
+    mode: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    owner_history: bool,
+    bbox_epsg: Bbox,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<Bound<'_, PyAny>>,
+    ifc_types: Option<Bound<'_, PyAny>>,
+    colors: Option<Bound<'_, PyAny>>,
+    owner: Option<Bound<'_, PyAny>>,
+) -> PyResult<String> {
+    let paths = gml_paths_from_py(&gml_path)?;
+    let opts = export_options(
+        mode,
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        owner_history,
+        basepoint,
+        psets.as_ref(),
+        ifc_types.as_ref(),
+        colors.as_ref(),
+        owner.as_ref(),
+    )?;
+    api::gml_to_ifc(&paths, ifc_path, building_id_filter, bbox_epsg, &opts)
+        .map_err(PyValueError::new_err)
+}
+
+/// Parse CityJSON (file, files, or document text) and write one IFC. `mode` is `"typed"` or `"mesh"`.
+///
+/// `psets` takes `bimfabrikhh_core_rs.psets.PsetSpec` objects (or their dicts).
+/// Omit it and the IFC is written without property sets.
+/// `ifc_types` maps surface types to IFC entities. Omit it and every product is
+/// `IfcBuildingElementProxy`.
+#[pyfunction]
+#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None))]
+#[allow(clippy::too_many_arguments)]
+fn cityjson_to_ifc(
+    source: Bound<'_, PyAny>,
+    ifc_path: &str,
+    building_id_filter: Option<&str>,
+    mode: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    owner_history: bool,
+    bbox_epsg: Bbox,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<Bound<'_, PyAny>>,
+    ifc_types: Option<Bound<'_, PyAny>>,
+    colors: Option<Bound<'_, PyAny>>,
+    owner: Option<Bound<'_, PyAny>>,
+) -> PyResult<String> {
+    cityjson_export(
+        &source,
+        ifc_path,
+        building_id_filter,
+        mode,
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        owner_history,
+        bbox_epsg,
+        basepoint,
+        psets.as_ref(),
+        ifc_types.as_ref(),
+        colors.as_ref(),
+        owner.as_ref(),
+    )
+}
+
+/// One `IfcBuildingElementProxy` mesh per CityJSON building (city-model blocks).
+///
+/// With `psets`, both scopes land on that product, since one `IfcBuilding` is
+/// shared by the whole city model; surface-scope specs then see the
+/// building-wide area and perimeter aggregates. Omit `psets` and no property
+/// sets are written. `ifc_types` may set the `"Building"` key; omit it and the
+/// product is `IfcBuildingElementProxy`.
+#[pyfunction]
+#[pyo3(signature = (source, ifc_path, building_id_filter=None, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None))]
+#[allow(clippy::too_many_arguments)]
+fn cityjson_to_ifc_blocks(
+    source: Bound<'_, PyAny>,
+    ifc_path: &str,
+    building_id_filter: Option<&str>,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    owner_history: bool,
+    bbox_epsg: Bbox,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<Bound<'_, PyAny>>,
+    ifc_types: Option<Bound<'_, PyAny>>,
+    colors: Option<Bound<'_, PyAny>>,
+    owner: Option<Bound<'_, PyAny>>,
+) -> PyResult<String> {
+    cityjson_export(
+        &source,
+        ifc_path,
+        building_id_filter,
+        "mesh",
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        owner_history,
+        bbox_epsg,
+        basepoint,
+        psets.as_ref(),
+        ifc_types.as_ref(),
+        colors.as_ref(),
+        owner.as_ref(),
+    )
+}

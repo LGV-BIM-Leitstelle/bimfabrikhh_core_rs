@@ -1,0 +1,11 @@
+/target
+/output/
+__pycache__/
+*.so
+*.pyc
+.venv
+*.egg-info
+.idea/
+
+# CityGML tiles are tens of MB; see fixtures/README.md
+/fixtures/*.gml

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "bimfabrikhh_core_rs"
+version = "0.1.0"
+description = "Parse CityGML and write IFC4 STEP text from Rust, callable from Python"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Ahmed Salem" }]
+dependencies = []
+
+# Only bimfabrikhh_core_rs.psets needs pydantic; the conversion API stays dependency-free.
+[project.optional-dependencies]
+psets = ["pydantic>=2.0"]
+
+[tool.maturin]
+module-name = "bimfabrikhh_core_rs.bimfabrikhh_core_rs"
+python-source = "python"
+features = ["pyo3/extension-module"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["python", "examples"]
