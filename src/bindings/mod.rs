@@ -46,6 +46,7 @@ fn export_options(
     ifc_types: Option<&Bound<'_, PyAny>>,
     colors: Option<&Bound<'_, PyAny>>,
     owner: Option<&Bound<'_, PyAny>>,
+    progress: bool,
 ) -> PyResult<ExportOptions> {
     Ok(ExportOptions {
         mode: mode.into(),
@@ -59,6 +60,7 @@ fn export_options(
         psets: pset_specs_from_py(psets)?,
         ifc_types: ifc_types_from_py(ifc_types)?,
         colors: colors_from_py(colors)?,
+        progress,
     })
 }
 
@@ -80,6 +82,7 @@ fn cityjson_export(
     ifc_types: Option<&Bound<'_, PyAny>>,
     colors: Option<&Bound<'_, PyAny>>,
     owner: Option<&Bound<'_, PyAny>>,
+    progress: bool,
 ) -> PyResult<String> {
     let src = cityjson_source_from_py(source)?;
     let opts = export_options(
@@ -94,6 +97,7 @@ fn cityjson_export(
         ifc_types,
         colors,
         owner,
+        progress,
     )?;
     api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, &opts)
         .map_err(PyValueError::new_err)
@@ -101,9 +105,14 @@ fn cityjson_export(
 
 /// Parse CityGML into building dicts.
 #[pyfunction]
-#[pyo3(signature = (path, building_id_filter=None, bbox_epsg=None))]
-fn parse_gml(path: &str, building_id_filter: Option<&str>, bbox_epsg: Bbox) -> PyResult<Vec<PyObject>> {
-    buildings_to_py(parse_gml_file(path, building_id_filter, bbox_epsg))
+#[pyo3(signature = (path, building_id_filter=None, bbox_epsg=None, progress=false))]
+fn parse_gml(
+    path: &str,
+    building_id_filter: Option<&str>,
+    bbox_epsg: Bbox,
+    progress: bool,
+) -> PyResult<Vec<PyObject>> {
+    buildings_to_py(parse_gml_file(path, building_id_filter, bbox_epsg, progress))
 }
 
 /// Parse a CityJSON file into building dicts (same shape as ``parse_gml``).
@@ -122,7 +131,7 @@ fn parse_cityjson_text(text: &str, building_id_filter: Option<&str>, bbox_epsg: 
 
 /// Write IFC4 STEP from a list of product dicts.
 #[pyfunction]
-#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, basepoint=None, owner=None))]
+#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, basepoint=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn write_ifc(
     products: Bound<'_, PyList>,
@@ -134,6 +143,7 @@ fn write_ifc(
     owner_history: bool,
     basepoint: Option<Bound<'_, PyTuple>>,
     owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
 ) -> PyResult<String> {
     let parsed = products_from_py(&products)?;
     let opts = export_options(
@@ -148,6 +158,7 @@ fn write_ifc(
         None,
         None,
         owner.as_ref(),
+        progress,
     )?;
     api::products_to_ifc(parsed, path, &opts).map_err(PyValueError::new_err)
 }
@@ -163,7 +174,7 @@ fn write_ifc(
 /// (`bimfabrikhh_core_rs.owner.OwnerIdentity` or a dict). Omit it and the Rust default
 /// is used. `owner_history=false` writes no owner-history block.
 #[pyfunction]
-#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None))]
+#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn gml_to_ifc(
     gml_path: Bound<'_, PyAny>,
@@ -181,6 +192,7 @@ fn gml_to_ifc(
     ifc_types: Option<Bound<'_, PyAny>>,
     colors: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
 ) -> PyResult<String> {
     let paths = gml_paths_from_py(&gml_path)?;
     let opts = export_options(
@@ -195,6 +207,7 @@ fn gml_to_ifc(
         ifc_types.as_ref(),
         colors.as_ref(),
         owner.as_ref(),
+        progress,
     )?;
     api::gml_to_ifc(&paths, ifc_path, building_id_filter, bbox_epsg, &opts)
         .map_err(PyValueError::new_err)
@@ -207,7 +220,7 @@ fn gml_to_ifc(
 /// `ifc_types` maps surface types to IFC entities. Omit it and every product is
 /// `IfcBuildingElementProxy`.
 #[pyfunction]
-#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None))]
+#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn cityjson_to_ifc(
     source: Bound<'_, PyAny>,
@@ -225,6 +238,7 @@ fn cityjson_to_ifc(
     ifc_types: Option<Bound<'_, PyAny>>,
     colors: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
 ) -> PyResult<String> {
     cityjson_export(
         &source,
@@ -242,6 +256,7 @@ fn cityjson_to_ifc(
         ifc_types.as_ref(),
         colors.as_ref(),
         owner.as_ref(),
+        progress,
     )
 }
 
@@ -253,7 +268,7 @@ fn cityjson_to_ifc(
 /// sets are written. `ifc_types` may set the `"Building"` key; omit it and the
 /// product is `IfcBuildingElementProxy`.
 #[pyfunction]
-#[pyo3(signature = (source, ifc_path, building_id_filter=None, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None))]
+#[pyo3(signature = (source, ifc_path, building_id_filter=None, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn cityjson_to_ifc_blocks(
     source: Bound<'_, PyAny>,
@@ -270,6 +285,7 @@ fn cityjson_to_ifc_blocks(
     ifc_types: Option<Bound<'_, PyAny>>,
     colors: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
 ) -> PyResult<String> {
     cityjson_export(
         &source,
@@ -287,5 +303,6 @@ fn cityjson_to_ifc_blocks(
         ifc_types.as_ref(),
         colors.as_ref(),
         owner.as_ref(),
+        progress,
     )
 }

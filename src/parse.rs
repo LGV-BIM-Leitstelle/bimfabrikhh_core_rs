@@ -1,4 +1,4 @@
-//! Streaming CityGML 1.0 / 2.0 building parser.
+//! Streaming CityGML 1.0 / 2.0 building parser (LoD1–3).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -52,6 +52,9 @@ struct BuildingAcc {
     id: String,
     gml_name: Option<String>,
     saw_lod1: bool,
+    saw_lod3: bool,
+    /// `lod3Solid` / terrain curves — xlink or linework, not extra rings.
+    skip_geom: bool,
     attributes: BuildingAttributes,
     boundaries: Vec<Boundary>,
     skip: bool,
@@ -66,6 +69,7 @@ struct BuildingAcc {
     buf: String,
     text_tag: Option<String>,
     current_poly_id: Option<String>,
+    generic_name: Option<String>,
     polygons_by_id: HashMap<String, Boundary>,
     xlink_refs: Vec<String>,
     xs: (f64, f64),
@@ -78,6 +82,8 @@ impl BuildingAcc {
             id,
             gml_name: None,
             saw_lod1: false,
+            saw_lod3: false,
+            skip_geom: false,
             attributes: BuildingAttributes::default(),
             boundaries: Vec::new(),
             skip,
@@ -92,6 +98,7 @@ impl BuildingAcc {
             buf: String::new(),
             text_tag: None,
             current_poly_id: None,
+            generic_name: None,
             polygons_by_id: HashMap::new(),
             xlink_refs: Vec::new(),
             xs: (f64::MAX, f64::MIN),
@@ -113,7 +120,7 @@ impl BuildingAcc {
     }
 
     fn finish_polygon(&mut self) {
-        if self.skip {
+        if self.skip || self.skip_geom {
             self.exterior.clear();
             self.interiors.clear();
             self.current_poly_id = None;
@@ -200,7 +207,9 @@ impl BuildingAcc {
         Some(ParsedBuilding {
             id: self.id,
             gml_name: self.gml_name,
-            lod: if self.saw_lod1 {
+            lod: if self.saw_lod3 {
+                "LoD3".into()
+            } else if self.saw_lod1 {
                 "LoD1".into()
             } else {
                 "LoD2".into()
@@ -215,6 +224,7 @@ pub fn parse_gml_file(
     path: impl AsRef<Path>,
     building_id_filter: Option<&str>,
     bbox_epsg: Option<BboxUtm>,
+    progress: bool,
 ) -> Result<Vec<ParsedBuilding>, String> {
     let path = path.as_ref();
     let mut reader = Reader::from_file(path).map_err(|e| format!("open {}: {e}", path.display()))?;
@@ -239,6 +249,11 @@ pub fn parse_gml_file(
                     } else if name == b"lod1Solid" {
                         acc.saw_lod1 = true;
                         acc.in_lod1 = true;
+                    } else if name == b"lod3MultiSurface" || name == b"lod3Solid" {
+                        acc.saw_lod3 = true;
+                        acc.skip_geom = name == b"lod3Solid";
+                    } else if name == b"lod3TerrainIntersection" {
+                        acc.skip_geom = true;
                     } else if name == b"boundedBy" {
                         acc.in_bounded_by = true;
                     } else if SURFACE_TYPES.contains(&name) {
@@ -254,13 +269,32 @@ pub fn parse_gml_file(
                         acc.text_tag = Some("posList".into());
                     } else if matches!(
                         name,
-                        b"name" | b"function" | b"measuredHeight" | b"storeysAboveGround" | b"roofType"
+                        b"stringAttribute"
+                            | b"intAttribute"
+                            | b"doubleAttribute"
+                            | b"dateAttribute"
+                            | b"uriAttribute"
+                            | b"measureAttribute"
+                    ) {
+                        acc.generic_name = attr_local_value(e.attributes(), b"name");
+                    } else if name == b"value" && acc.generic_name.is_some() {
+                        acc.text_tag = Some("gen_value".into());
+                        acc.buf.clear();
+                    } else if matches!(
+                        name,
+                        b"name"
+                            | b"function"
+                            | b"measuredHeight"
+                            | b"storeysAboveGround"
+                            | b"roofType"
                     ) {
                         acc.text_tag = Some(local_str(name));
                         acc.buf.clear();
                     }
-                    if let Some(href) = attr_local_value(e.attributes(), b"href") {
-                        acc.xlink_refs.push(href.trim_start_matches('#').to_string());
+                    if !acc.skip_geom {
+                        if let Some(href) = attr_local_value(e.attributes(), b"href") {
+                            acc.xlink_refs.push(href.trim_start_matches('#').to_string());
+                        }
                     }
                 }
             }
@@ -278,7 +312,7 @@ pub fn parse_gml_file(
                     if let Some(acc) = current.take() {
                         if let Some(b) = acc.into_building(bbox_epsg) {
                             buildings.push(b);
-                            if buildings.len() % 25 == 0 {
+                            if progress && buildings.len() % 25 == 0 {
                                 eprint!("\r  parse_gml: {:>5} buildings", buildings.len());
                             }
                             if building_id_filter.is_some() {
@@ -291,6 +325,8 @@ pub fn parse_gml_file(
                         acc.part_id = None;
                     } else if name == b"lod1Solid" {
                         acc.in_lod1 = false;
+                    } else if name == b"lod3Solid" || name == b"lod3TerrainIntersection" {
+                        acc.skip_geom = false;
                     } else if name == b"boundedBy" {
                         acc.in_bounded_by = false;
                     } else if SURFACE_TYPES.contains(&name) {
@@ -302,7 +338,7 @@ pub fn parse_gml_file(
                     } else if name == b"Polygon" || name == b"Triangle" {
                         acc.finish_polygon();
                     } else if name == b"posList" || name == b"pos" {
-                        if !acc.skip {
+                        if !acc.skip && !acc.skip_geom {
                             let pts = parse_poslist(&acc.buf);
                             acc.note_points(&pts);
                             if acc.in_interior {
@@ -313,6 +349,25 @@ pub fn parse_gml_file(
                         }
                         acc.buf.clear();
                         acc.text_tag = None;
+                    } else if name == b"value" && acc.text_tag.as_deref() == Some("gen_value") {
+                        if let Some(key) = acc.generic_name.clone() {
+                            let value = acc.buf.trim();
+                            if !value.is_empty() && !acc.skip && acc.surface_type.is_none() {
+                                acc.attributes.extra.insert(key, value.to_string());
+                            }
+                        }
+                        acc.buf.clear();
+                        acc.text_tag = None;
+                    } else if matches!(
+                        name,
+                        b"stringAttribute"
+                            | b"intAttribute"
+                            | b"doubleAttribute"
+                            | b"dateAttribute"
+                            | b"uriAttribute"
+                            | b"measureAttribute"
+                    ) {
+                        acc.generic_name = None;
                     } else if acc.text_tag.as_deref() == Some(&local_str(name)) {
                         let value = acc.buf.trim().to_string();
                         if !value.is_empty() && !acc.skip {
@@ -330,7 +385,7 @@ pub fn parse_gml_file(
         buf.clear();
     }
 
-    if !buildings.is_empty() {
+    if progress && !buildings.is_empty() {
         eprintln!("\r  parse_gml: {:>5} buildings", buildings.len());
     }
     Ok(buildings)

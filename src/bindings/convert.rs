@@ -22,6 +22,9 @@ pub fn building_to_py(py: Python<'_>, b: &ParsedBuilding) -> PyResult<PyObject> 
     attrs.set_item("measured_height", b.attributes.measured_height)?;
     attrs.set_item("storeys_above_ground", b.attributes.storeys_above_ground)?;
     attrs.set_item("roof_type", &b.attributes.roof_type)?;
+    for (k, v) in &b.attributes.extra {
+        attrs.set_item(k, v)?;
+    }
     d.set_item("attributes", attrs)?;
     let bounds = PyList::empty(py);
     for bd in &b.boundaries {
@@ -390,11 +393,14 @@ pub fn pset_specs_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<PsetSp
 pub fn cityjson_source_from_py(obj: &Bound<'_, PyAny>) -> PyResult<CityJsonSource> {
     if let Ok(s) = obj.extract::<String>() {
         if s.trim_start().starts_with('{') {
-            return Ok(CityJsonSource::Text(s));
+            return Ok(CityJsonSource::Texts(vec![s]));
         }
         return Ok(CityJsonSource::Paths(vec![s]));
     }
     if let Ok(list) = obj.extract::<Vec<String>>() {
+        if list.iter().all(|s| s.trim_start().starts_with('{')) {
+            return Ok(CityJsonSource::Texts(list));
+        }
         return Ok(CityJsonSource::Paths(list));
     }
     Err(PyValueError::new_err("source must be a path, a list of paths, or CityJSON text"))

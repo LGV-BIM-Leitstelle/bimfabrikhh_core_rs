@@ -42,6 +42,7 @@ pub struct WriteOptions {
     pub basepoint: Option<(f64, f64)>,
     /// One spatial IfcBuilding; CityGML buildings are products (Python city model).
     pub city_model: bool,
+    pub progress: bool,
 }
 
 impl Default for WriteOptions {
@@ -55,6 +56,7 @@ impl Default for WriteOptions {
             owner: OwnerIdentity::default(),
             basepoint: None,
             city_model: false,
+            progress: false,
         }
     }
 }
@@ -384,7 +386,7 @@ fn write_ifc<W: Write>(
             write_psets(w, &mut id, &owner, prod, &product.psets, &product.name)?;
             product_refs.push(format!("#{prod}"));
             written += 1;
-            if written.is_multiple_of(50) || written == total_products {
+            if opts.progress && (written.is_multiple_of(50) || written == total_products) {
                 eprint!("\r  write_ifc: {written:>5}/{total_products} products");
             }
         }
@@ -433,7 +435,7 @@ fn write_ifc<W: Write>(
         )?;
     }
 
-    if total_products > 0 {
+    if opts.progress && total_products > 0 {
         eprintln!();
     }
     writeln!(w, "ENDSEC;")?;

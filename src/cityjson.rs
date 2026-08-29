@@ -155,18 +155,25 @@ fn object_to_building(id: &str, obj: &Value, verts: &[[f64; 3]]) -> Option<Parse
     })
 }
 
+fn lod_label(n: f64) -> String {
+    if n >= 2.5 {
+        "LoD3".into()
+    } else if n < 1.5 {
+        "LoD1".into()
+    } else {
+        "LoD2".into()
+    }
+}
+
 fn geom_lod(g: &Value) -> Option<String> {
     let lod = g.get("lod")?;
     if let Some(s) = lod.as_str() {
-        return Some(if s.starts_with("LoD") || s.starts_with("lod") {
-            if s.contains('1') { "LoD1".into() } else { "LoD2".into() }
-        } else if s.starts_with('1') {
-            "LoD1".into()
-        } else {
-            "LoD2".into()
-        });
+        let digits = s.trim().trim_start_matches(['L', 'o', 'D', 'l', 'd']);
+        if let Ok(n) = digits.parse::<f64>() {
+            return Some(lod_label(n));
+        }
     }
-    lod.as_f64().map(|n| if n < 1.5 { "LoD1".into() } else { "LoD2".into() })
+    lod.as_f64().map(lod_label)
 }
 
 fn geom_to_boundaries(g: &Value, verts: &[[f64; 3]], part_id: Option<String>) -> Vec<Boundary> {
@@ -327,8 +334,18 @@ fn attrs_from_obj(obj: &Value) -> BuildingAttributes {
         if let Some(s) = a.get("roofType").and_then(as_string) {
             out.roof_type = Some(s);
         }
-        if let Some(s) = a.get("gemeindeschluessel").and_then(as_string) {
-            out.extra.insert("gemeindeschluessel".into(), s);
+        if let Some(map) = a.as_object() {
+            for (k, v) in map {
+                if matches!(
+                    k.as_str(),
+                    "function" | "measuredHeight" | "storeysAboveGround" | "roofType"
+                ) {
+                    continue;
+                }
+                if let Some(s) = as_string(v) {
+                    out.extra.insert(k.clone(), s);
+                }
+            }
         }
     }
     out
