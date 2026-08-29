@@ -170,9 +170,10 @@ building = PsetSpec(
     properties={
         "_IDEbene1":       Const("Stadtmodell"),
         "_StadtmodellLoD": Attr("lod"),
-        "_FunktionGebaeude": Attr("function", catalog="funktion", default="undefiniert"),
-        "_RelativeHoehe":  Attr("measured_height", decimals=3, default="0.0"),
-        "_Dachform":       Attr("roof_type", catalog="dachform", default="undefiniert"),
+        "_FunktionGebaeude": Attr("function", catalog="funktion"),
+        "_RelativeHoehe":  Attr("measured_height", decimals=3),
+        "_Dachform":       Attr("roof_type", catalog="dachform"),
+        "_GrundhoeheNN":   Attr("extra:Grundhöhe NN"),  # omitted when the source has no such attribute
     },
 )
 surface = PsetSpec(
@@ -227,15 +228,9 @@ Objektartenkatalog or your own `{code: label}` dict. `decimals` fixes the number
 places; omitting it keeps the source precision. `default` fills in when the attribute is missing —
 omit it and the property is dropped for that object instead.
 
-`hamburg_defaults()` is a Python helper for the Hamburg convention; you still have to pass it.
-Because a spec is plain data it also serialises, so a pset convention can live in version control:
-
-```python
-from bimfabrikhh_core_rs.psets import hamburg_defaults, specs_from_json, specs_to_json
-
-Path("convention.json").write_text(specs_to_json(hamburg_defaults()))
-specs = specs_from_json(Path("convention.json").read_text())
-```
+`hamburg_defaults()` is the slim Hamburg helper. `attribute_mapping.specs()` is
+the Pydantic mapping of IFC properties to source fields; a property is omitted
+when that field is missing.
 
 Only the quantities a spec actually asks for get computed, so dropping `perimeter` and `tilt`
 makes the conversion measurably faster.
@@ -291,25 +286,30 @@ Each script in `examples/` is runnable on its own.
 |---------------------------------------------|--------------------------------------------------------------------------|
 | `example_one_building_entities.py`          | one CityGML building, typed                                              |
 | `example_one_building_block.py`             | one CityGML building, mesh                                               |
-| `example_kachel_entities.py` / `_blocks.py` | every building in each tile under `fixtures/`                            |
+| `example_kachel_entities.py` / `_blocks.py` | one `fixtures/` tile (`loop=True` for every `*.gml`)                     |
 | `example_generic_city_model.py`             | Hamburg LoD1 tiles, mesh city model                                      |
 | `example_hamburg_lod2_cityjson.py`          | Hamburg LoD2 via the CityJSON API, typed                                 |
 | `example_hamburg_lod2_cityjson_blocks.py`   | same crop, mesh blocks                                                   |
+| `example_hamburg_lod3.py`                   | Hamburg LoD3 CityGML tiles (external path), typed                        |
+| `example_hamburg_lod3_blocks.py`            | same tiles, one mesh block per building                                  |
+| `example_hamburg_lod3_bbox.py`              | same LoD2 bbox crop over LoD3 tiles, typed                               |
+| `example_hamburg_lod3_bbox_blocks.py`       | same crop, mesh blocks                                                   |
 | `example_pset_spec.py`                      | declarative psets: none unless passed, Hamburg helper, custom convention |
 
 ```bash
 python examples/example_one_building_entities.py
 ```
 
-The two Hamburg CityJSON scripts download from the
-[Hamburg OGC API](https://api.hamburg.de/datasets/v1/lod2_hamburg) using `urllib`, cache each page
-into `output/`, and reuse the cache on later runs. HTTP lives in the examples, never in the
-package. `example_generic_city_model.py` expects the LoD1 tiles from `BIMFabrikHH_core` next to
-this repository.
+The Hamburg CityJSON scripts download from the
+[Hamburg OGC API](https://api.hamburg.de/datasets/v1/lod2_hamburg) using `urllib` and keep the
+pages in memory. They write only the IFC. HTTP lives in the examples, never in the package.
+`example_generic_city_model.py` expects the LoD1 tiles from `BIMFabrikHH_core` next to this
+repository.
 
 The CityGML examples read tiles from `fixtures/`, which are **not** part of the repository because
 they run to tens of megabytes each. See [`fixtures/README.md`](fixtures/README.md) for what to put
-there. The CityJSON examples need no fixtures.
+there. The Hamburg LoD3 examples read the CityGRID folder in place and do not copy tiles
+into `fixtures/`. The CityJSON examples need no fixtures.
 
 ---
 
