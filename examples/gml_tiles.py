@@ -15,6 +15,14 @@ from logconfig import ENABLED, ifc_created, log
 _CORNER = re.compile(
     r"<(?:gml:)?(lower|upper)Corner>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)"
 )
+_TILE_SUFFIXES = {".gml", ".xml"}
+
+
+def tile_files(folder: Path) -> list[Path]:
+    """CityGML tiles in a folder (``.gml`` or ``.xml``). Zips and rasters are skipped."""
+    return sorted(
+        p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in _TILE_SUFFIXES
+    )
 
 
 def _tile_paths(
@@ -29,13 +37,13 @@ def _tile_paths(
             raise FileNotFoundError(tiles)
         if not loop:
             if tile is None:
-                found = sorted(tiles.glob("*.gml"))
+                found = tile_files(tiles)
                 return found[:1]
             path = tiles / tile
             if not path.is_file():
                 raise FileNotFoundError(path)
             return [path]
-        return sorted(tiles.glob("*.gml"))
+        return tile_files(tiles)
     paths = sorted(tiles)
     return paths if loop else paths[:1]
 
@@ -54,7 +62,7 @@ def _envelope(path: Path) -> tuple[float, float, float, float] | None:
 def tiles_in_bbox(folder: Path, bbox: tuple[float, float, float, float]) -> list[Path]:
     minx, miny, maxx, maxy = bbox
     hits: list[Path] = []
-    for path in sorted(folder.glob("*.gml")):
+    for path in tile_files(folder):
         env = _envelope(path)
         if env is None:
             hits.append(path)

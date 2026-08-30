@@ -8,8 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 _LOADED = False
 
-_LOD3 = "BIMFABRIKHH_LOD3_GML_DIR"
 _LOD1 = "BIMFABRIKHH_LOD1_GML_DIR"
+_LOD2 = "BIMFABRIKHH_LOD2_GML_DIR"
+_LOD3 = "BIMFABRIKHH_LOD3_GML_DIR"
 FIXTURES = ROOT / "fixtures"
 
 
@@ -49,9 +50,13 @@ def _require_dir(name: str) -> Path:
     return path
 
 
-def lod3_dir() -> Path:
-    return _require_dir(_LOD3)
-
-
 def lod1_dir() -> Path:
     return _require_dir(_LOD1)
+
+
+def lod2_dir() -> Path:
+    return _require_dir(_LOD2)
+
+
+def lod3_dir() -> Path:
+    return _require_dir(_LOD3)
