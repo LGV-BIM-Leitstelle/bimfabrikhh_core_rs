@@ -106,7 +106,13 @@ def _write(path: Path, n: int, *, cols: int, detail: int) -> str:
 
     t1 = time.perf_counter()
     written = trees_to_ifc(
-        trees, str(path), epsg=25832, psets=specs(), owner=defaults(), progress=ENABLED
+        trees,
+        str(path),
+        epsg=25832,
+        psets=specs(),
+        owner=defaults(),
+        basepoint=(ORIGIN[0], ORIGIN[1]),
+        progress=ENABLED,
     )
     elapsed = time.perf_counter() - t1
     log.debug("trees_to_ifc: %.2fs", elapsed)
