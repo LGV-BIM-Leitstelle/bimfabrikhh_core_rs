@@ -15,19 +15,32 @@ pub(crate) fn elevation_ok(z: f64) -> bool {
     z.is_finite() && z.abs() < MAX_ABS_ELEVATION_M
 }
 
+/// Z of the nearest sample with a valid elevation, or `None` if none exist.
+pub(crate) fn nearest_valid_z(x: f64, y: f64, samples: &[[f64; 3]]) -> Option<f64> {
+    let mut best_d = f64::INFINITY;
+    let mut best_z = None;
+    for s in samples {
+        if !elevation_ok(s[2]) {
+            continue;
+        }
+        let dx = s[0] - x;
+        let dy = s[1] - y;
+        let d = dx * dx + dy * dy;
+        if d < best_d {
+            best_d = d;
+            best_z = Some(s[2]);
+        }
+    }
+    best_z
+}
+
 /// Keep XY; replace nodata / non-finite Z with the nearest valid vertex Z (XY).
 /// Not a fixed `0` and not the crop minimum.
 fn fill_nodata_from_nearest(vertices: &[[f64; 3]]) -> Result<(Vec<[f64; 3]>, usize), String> {
-    let valid: Vec<usize> = vertices
-        .iter()
-        .enumerate()
-        .filter(|(_, v)| elevation_ok(v[2]))
-        .map(|(i, _)| i)
-        .collect();
-    if valid.is_empty() {
+    if !vertices.iter().any(|v| elevation_ok(v[2])) {
         return Err("terrain mesh has no valid elevations".into());
     }
-    if valid.len() == vertices.len() {
+    if vertices.iter().all(|v| elevation_ok(v[2])) {
         return Ok((vertices.to_vec(), 0));
     }
     let mut out = vertices.to_vec();
@@ -36,18 +49,10 @@ fn fill_nodata_from_nearest(vertices: &[[f64; 3]]) -> Result<(Vec<[f64; 3]>, usi
         if elevation_ok(v[2]) {
             continue;
         }
-        let mut best_d = f64::INFINITY;
-        let mut best_z = 0.0;
-        for &j in &valid {
-            let dx = vertices[j][0] - v[0];
-            let dy = vertices[j][1] - v[1];
-            let d = dx * dx + dy * dy;
-            if d < best_d {
-                best_d = d;
-                best_z = vertices[j][2];
-            }
-        }
-        out[i][2] = best_z;
+        let Some(z) = nearest_valid_z(v[0], v[1], vertices) else {
+            continue;
+        };
+        out[i][2] = z;
         filled += 1;
     }
     Ok((out, filled))

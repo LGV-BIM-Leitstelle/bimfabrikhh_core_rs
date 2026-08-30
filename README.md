@@ -49,7 +49,7 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 - **`gml_to_ifc(path, ifc_path, ...)`** — CityGML file or list of files → IFC
 - **`cityjson_to_ifc(source, ifc_path, ...)`** — CityJSON path, list of paths, or document text → IFC
 - **`write_ifc(products, path, ...)`** — IFC from product dicts you built yourself
-- **`trees_to_ifc(trees, ifc_path, ...)`** — trunk + crown meshes → IFC (TreesGenericApp path)
+- **`trees_to_ifc(trees, ifc_path, ...)`** — trunk + crown meshes → IFC (TreesGenericApp path). Optional ``drape_vertices`` / ``drape_faces`` sets ``z = 0`` from the DGM triangle (else nearest vertex).
 - **`terrain_to_ifc(vertices, faces, ifc_path, ...)`** — triangulated DGM → IFC (TerrainGenericApp write path)
 
 ### Parse
@@ -136,6 +136,7 @@ trees_to_ifc(
     epsg=25832,
     psets=specs(),
     basepoint=(565100.0, 5933600.0),
+    # drape_vertices=mesh.vertices,  # optional: lift z=0 from nearest DGM sample
 )
 ```
 

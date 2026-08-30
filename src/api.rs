@@ -16,8 +16,8 @@ use crate::ifc::{write_ifc_file, OwnerIdentity, WriteOptions};
 use crate::parse::{parse_gml_file, BboxUtm};
 use crate::psetspec::{self, PsetSpec, Scope};
 use crate::terrain::{elevation_ok, terrain_attr_map, terrain_to_product, TerrainInput};
-use crate::tree::{tree_attr_map, trees_to_products, TreeInput};
-use crate::types::{upsert_pset, BuildingExport, ParsedBuilding, Product};
+use crate::tree::{drape_trees, tree_attr_map, trees_to_products, TreeInput};
+use crate::types::{upsert_pset, BuildingExport, Face, ParsedBuilding, Product};
 
 pub fn is_mesh(mode: &str) -> bool {
     mode.eq_ignore_ascii_case("mesh")
@@ -171,11 +171,32 @@ pub fn cityjson_to_ifc(
 }
 
 /// TreesGenericApp path: Python prepares records, Rust meshes trunk + crown and writes STEP.
-pub fn trees_to_ifc(trees: &[TreeInput], ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
+///
+/// `drape_vertices`: optional DGM points. When set, trees with `z = 0` or nodata
+/// take Z from the containing triangle (`drape_faces`) or the nearest vertex.
+pub fn trees_to_ifc(
+    trees: &[TreeInput],
+    ifc_path: &str,
+    opts: &ExportOptions,
+    drape_vertices: Option<&[[f64; 3]]>,
+    drape_faces: Option<&[Face]>,
+) -> Result<String, String> {
     if trees.is_empty() {
         return Err("no trees to write".into());
     }
-    let mut products = trees_to_products(trees);
+    let mut trees = trees.to_vec();
+    if let Some(samples) = drape_vertices {
+        let n = drape_trees(&mut trees, samples, drape_faces);
+        if opts.progress && n > 0 {
+            let how = if drape_faces.is_some() {
+                "mesh triangle / nearest vertex"
+            } else {
+                "nearest sample"
+            };
+            eprintln!("  trees: draped {n} z=0 / nodata from {how}");
+        }
+    }
+    let mut products = trees_to_products(&trees);
     if !opts.psets.is_empty() {
         for (product, tree) in products.iter_mut().zip(trees.iter()) {
             for pset in psetspec::eval_map(&opts.psets, Scope::Building, &tree_attr_map(tree)) {

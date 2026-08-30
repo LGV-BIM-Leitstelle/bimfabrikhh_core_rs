@@ -13,7 +13,7 @@ use crate::types::ParsedBuilding;
 use convert::{
     basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, gml_paths_from_py,
     ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py, terrain_from_py,
-    trees_from_py,
+    trees_from_py, xyz_list_from_py, faces_from_py,
 };
 
 type Bbox = Option<(f64, f64, f64, f64)>;
@@ -239,8 +239,13 @@ fn cityjson_to_ifc(
 ///
 /// ``psets`` takes ``bimfabrikhh_core_rs.psets.PsetSpec`` objects (or their dicts),
 /// same as ``gml_to_ifc``. Omit it and no property sets are written.
+///
+/// ``drape_vertices`` is optional ``[[x, y, z], ...]``. With ``drape_faces``
+/// rust interpolates Z on the containing triangle (same mesh as the DGM IFC).
+/// Without faces it uses the nearest vertex. Omit both and rust does not
+/// touch height.
 #[pyfunction]
-#[pyo3(signature = (trees, ifc_path, project_name="Trees_Generic_Project", site_name="Trees_Generic_Site", epsg=25832, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false))]
+#[pyo3(signature = (trees, ifc_path, project_name="Trees_Generic_Project", site_name="Trees_Generic_Site", epsg=25832, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false, drape_vertices=None, drape_faces=None))]
 #[allow(clippy::too_many_arguments)]
 fn trees_to_ifc(
     trees: Bound<'_, PyList>,
@@ -255,8 +260,18 @@ fn trees_to_ifc(
     psets: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
     progress: bool,
+    drape_vertices: Option<Bound<'_, PyAny>>,
+    drape_faces: Option<Bound<'_, PyAny>>,
 ) -> PyResult<String> {
     let parsed = trees_from_py(&trees)?;
+    let drape = match drape_vertices {
+        Some(v) if !v.is_none() => Some(xyz_list_from_py(&v)?),
+        _ => None,
+    };
+    let faces = match drape_faces {
+        Some(v) if !v.is_none() => Some(faces_from_py(&v)?),
+        _ => None,
+    };
     let opts = export_options(
         "mesh",
         project_name,
@@ -272,7 +287,7 @@ fn trees_to_ifc(
         owner.as_ref(),
         progress,
     )?;
-    api::trees_to_ifc(&parsed, ifc_path, &opts).map_err(PyValueError::new_err)
+    api::trees_to_ifc(&parsed, ifc_path, &opts, drape.as_deref(), faces.as_deref()).map_err(PyValueError::new_err)
 }
 
 /// One triangulated DGM mesh → IFC4 STEP. Python still samples / Delaunay.

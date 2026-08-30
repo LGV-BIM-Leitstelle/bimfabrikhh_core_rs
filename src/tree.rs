@@ -3,7 +3,50 @@
 use std::collections::HashMap;
 
 use crate::color::{CROWN_RGB, TRUNK_RGB};
+use crate::terrain::{elevation_ok, nearest_valid_z};
 use crate::types::{Face, Product, ProductPart, Pset};
+
+/// Barycentric Z if ``(x, y)`` lies in triangle ``a,b,c`` (XY).
+fn triangle_z(x: f64, y: f64, a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<f64> {
+    if !elevation_ok(a[2]) || !elevation_ok(b[2]) || !elevation_ok(c[2]) {
+        return None;
+    }
+    let ax = b[0] - a[0];
+    let ay = b[1] - a[1];
+    let bx = c[0] - a[0];
+    let by = c[1] - a[1];
+    let cx = x - a[0];
+    let cy = y - a[1];
+    let den = ax * by - ay * bx;
+    if den.abs() < 1e-18 {
+        return None;
+    }
+    let u = (cx * by - cy * bx) / den;
+    let v = (ax * cy - ay * cx) / den;
+    if u >= -1e-8 && v >= -1e-8 && u + v <= 1.0 + 1e-8 {
+        Some(a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]))
+    } else {
+        None
+    }
+}
+
+fn mesh_z_at(x: f64, y: f64, verts: &[[f64; 3]], faces: &[Face]) -> Option<f64> {
+    for face in faces {
+        let idx = match face {
+            Face::Simple(idx) if idx.len() >= 3 => idx.as_slice(),
+            Face::WithVoids { outer, .. } if outer.len() >= 3 => outer.as_slice(),
+            _ => continue,
+        };
+        let (i0, i1, i2) = (idx[0] as usize, idx[1] as usize, idx[2] as usize);
+        if i0 >= verts.len() || i1 >= verts.len() || i2 >= verts.len() {
+            continue;
+        }
+        if let Some(z) = triangle_z(x, y, verts[i0], verts[i1], verts[i2]) {
+            return Some(z);
+        }
+    }
+    None
+}
 
 pub const TRUNK_LAYER: &str = "_BIM_SBK_Stamm";
 pub const CROWN_LAYER: &str = "_BIM_SBK_Krone";
@@ -47,6 +90,33 @@ impl Default for TreeInput {
 
 pub fn trees_to_products(trees: &[TreeInput]) -> Vec<Product> {
     trees.iter().map(tree_to_product).collect()
+}
+
+/// BIMFabrik sampler writes nodata as `0`. Optional rust drape treats that as missing.
+pub fn tree_z_needs_drape(z: f64) -> bool {
+    z == 0.0 || !elevation_ok(z)
+}
+
+/// Set `position[2]` from the mesh: containing-triangle Z, else nearest vertex.
+/// No-op when `samples` is empty.
+pub fn drape_trees(trees: &mut [TreeInput], samples: &[[f64; 3]], faces: Option<&[Face]>) -> usize {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut filled = 0usize;
+    for tree in trees {
+        if !tree_z_needs_drape(tree.position[2]) {
+            continue;
+        }
+        let z = faces
+            .and_then(|f| mesh_z_at(tree.position[0], tree.position[1], samples, f))
+            .or_else(|| nearest_valid_z(tree.position[0], tree.position[1], samples));
+        if let Some(z) = z {
+            tree.position[2] = z;
+            filled += 1;
+        }
+    }
+    filled
 }
 
 /// Geometry plus caller attributes. Existing keys win over the derived ones.
@@ -318,5 +388,52 @@ mod tests {
         }
         let crown_z: Vec<f64> = p.extra[0].vertices.iter().map(|v| v[2]).collect();
         assert!(crown_z.iter().all(|z| (z - 4.0).abs() <= 2.0 + 1e-6));
+    }
+
+    #[test]
+    fn drape_fills_zero_from_nearest_sample() {
+        let mut trees = vec![
+            TreeInput {
+                name: "a".into(),
+                position: [10.0, 0.0, 0.0],
+                ..TreeInput::default()
+            },
+            TreeInput {
+                name: "b".into(),
+                position: [0.0, 0.0, 4.2],
+                ..TreeInput::default()
+            },
+        ];
+        let n = drape_trees(&mut trees, &[[0.0, 0.0, 4.2], [100.0, 0.0, 9.0]], None);
+        assert_eq!(n, 1);
+        assert_eq!(trees[0].position[2], 4.2);
+        assert_eq!(trees[1].position[2], 4.2);
+    }
+
+    #[test]
+    fn drape_skipped_when_no_samples() {
+        let mut trees = vec![TreeInput {
+            position: [1.0, 2.0, 0.0],
+            ..TreeInput::default()
+        }];
+        assert_eq!(drape_trees(&mut trees, &[], None), 0);
+        assert_eq!(trees[0].position[2], 0.0);
+    }
+
+    #[test]
+    fn drape_uses_triangle_not_far_vertex() {
+        let verts = [
+            [0.0, 0.0, 1.0],
+            [10.0, 0.0, 1.0],
+            [0.0, 10.0, 1.0],
+            [100.0, 100.0, 40.0],
+        ];
+        let faces = [Face::Simple(vec![0, 1, 2])];
+        let mut trees = vec![TreeInput {
+            position: [2.0, 2.0, 0.0],
+            ..TreeInput::default()
+        }];
+        assert_eq!(drape_trees(&mut trees, &verts, Some(&faces)), 1);
+        assert!((trees[0].position[2] - 1.0).abs() < 1e-9);
     }
 }

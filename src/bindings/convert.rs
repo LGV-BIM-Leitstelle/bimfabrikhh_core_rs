@@ -260,6 +260,40 @@ pub fn trees_from_py(trees: &Bound<'_, PyList>) -> PyResult<Vec<TreeInput>> {
     Ok(out)
 }
 
+pub fn xyz_list_from_py(vertices: &Bound<'_, PyAny>) -> PyResult<Vec<[f64; 3]>> {
+    let raw: Vec<Vec<f64>> = vertices
+        .extract()
+        .map_err(|_| PyValueError::new_err("vertices must be a list of [x, y, z]"))?;
+    Ok(raw
+        .into_iter()
+        .map(|p| {
+            if p.len() < 3 {
+                [0.0, 0.0, 0.0]
+            } else {
+                [p[0], p[1], p[2]]
+            }
+        })
+        .collect())
+}
+
+pub fn faces_from_py(faces: &Bound<'_, PyAny>) -> PyResult<Vec<Face>> {
+    if let Ok(simple) = faces.extract::<Vec<Vec<u32>>>() {
+        return Ok(simple.into_iter().map(Face::Simple).collect());
+    }
+    if let Ok(list) = faces.downcast::<PyList>() {
+        let mut mesh_faces = Vec::new();
+        for face in list.iter() {
+            if let Ok(idx) = face.extract::<Vec<u32>>() {
+                mesh_faces.push(Face::Simple(idx));
+            } else {
+                return Err(PyValueError::new_err("faces must be lists of vertex indices"));
+            }
+        }
+        return Ok(mesh_faces);
+    }
+    Err(PyValueError::new_err("faces must be a list of index lists"))
+}
+
 fn xyz_from_py(d: &Bound<'_, PyDict>, key: &str) -> PyResult<[f64; 3]> {
     let v = d
         .get_item(key)?
@@ -303,33 +337,8 @@ pub fn terrain_from_py(
     layer: Option<&str>,
     attributes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<TerrainInput> {
-    let vertices_raw: Vec<Vec<f64>> = vertices
-        .extract()
-        .map_err(|_| PyValueError::new_err("vertices must be a list of [x, y, z]"))?;
-    let verts: Vec<[f64; 3]> = vertices_raw
-        .into_iter()
-        .map(|p| {
-            if p.len() < 3 {
-                [0.0, 0.0, 0.0]
-            } else {
-                [p[0], p[1], p[2]]
-            }
-        })
-        .collect();
-    let mut mesh_faces = Vec::new();
-    if let Ok(simple) = faces.extract::<Vec<Vec<u32>>>() {
-        mesh_faces.extend(simple.into_iter().map(Face::Simple));
-    } else if let Ok(list) = faces.downcast::<PyList>() {
-        for face in list.iter() {
-            if let Ok(idx) = face.extract::<Vec<u32>>() {
-                mesh_faces.push(Face::Simple(idx));
-            } else {
-                return Err(PyValueError::new_err("faces must be lists of vertex indices"));
-            }
-        }
-    } else {
-        return Err(PyValueError::new_err("faces must be a list of index lists"));
-    }
+    let verts = xyz_list_from_py(vertices)?;
+    let mesh_faces = faces_from_py(faces)?;
     let rgb = match color {
         Some(v) if !v.is_none() => rgb_style_from_py(v)?,
         _ => TERRAIN_RGB,
