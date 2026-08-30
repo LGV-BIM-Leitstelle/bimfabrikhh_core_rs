@@ -3,6 +3,18 @@ name = "bimfabrikhh_core_rs"
 version = "0.1.0"
 edition = "2021"
 description = "Standalone CityGML parse + IFC4 STEP writer (Python bindings)"
+authors = ["Ahmed Salem <ahmed.salem@gv.hamburg.de>"]
+license = "LGPL-2.1"
+license-file = "LICENSE"
+readme = "README.md"
+# sdist / cargo package: library only. examples, fixtures, and CI stay in git.
+exclude = [
+    "examples/*",
+    "fixtures/*",
+    ".github/*",
+    ".env.example",
+    "output/*",
+]
 
 [lib]
 name = "bimfabrikhh_core_rs"

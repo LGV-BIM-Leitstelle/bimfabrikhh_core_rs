@@ -23,8 +23,8 @@ impl Default for OwnerIdentity {
     fn default() -> Self {
         Self {
             family_name: "Salem".into(),
-            given_name: "bimfabrikhh_core_rs".into(),
-            organization: "bimfabrikhh_core_rs".into(),
+            given_name: "Ahmed".into(),
+            organization: "BIM-Leitstelle, LGV Hamburg".into(),
             application: "bimfabrikhh_core_rs".into(),
             version: "0.1.0".into(),
             identifier: "bimfabrikhh_core_rs".into(),

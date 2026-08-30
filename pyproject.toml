@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["BIM", "IFC", "CityGML", "CityJSON", "construction"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering :: GIS",
     "License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)",

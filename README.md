@@ -4,370 +4,187 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-LGPL--2.1-blue.svg)](LICENSE)
 
-Parse **CityGML 1.0 / 2.0** and **CityJSON 1.1** and write **IFC4 STEP** text, implemented in
-Rust and callable from Python.
+Parse CityGML 1.0 / 2.0 and CityJSON 1.1 and write IFC4 STEP from Python.
 
-The IFC is written as hand-rolled STEP text — no `ifcopenshell` dependency. Property sets are
-optional: pass a [declarative spec](#property-sets) from Python, or omit `psets` and none are
-written. No HTTP happens inside the package: you fetch the data, the package converts it.
+## About This Project
 
----
+**bimfabrikhh_core_rs** is developed and maintained by **Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und
+Vermessung (LGV)**, **BIM-Leitstelle**
 
-## Quick install
+This library is part of [BIMFabrikHH](https://github.com/LGV-BIM-Leitstelle/BIMFabrikHH_core). It converts urban
+building models to IFC4 STEP.
+
+This project is in an **early stage of development**. The API and features will keep evolving.
+
+**Author:** Ahmed Salem (BIM-Leitstelle, LGV Hamburg)
+
+## Quick Install
 
 ```bash
 pip install bimfabrikhh_core_rs
 ```
 
-Optional pydantic helpers for property-set specs:
+Optional pydantic helpers for property-set specs, IFC type maps, and owner identity:
 
 ```bash
 pip install "bimfabrikhh_core_rs[psets]"
 ```
 
-Wheels are published for Linux (manylinux and musllinux, x86_64 and aarch64), Windows
-(`win_amd64`), and macOS (Intel and Apple Silicon). One wheel per platform works for
-Python 3.11+. Other hosts can still compile from the source distribution if Rust is installed.
+Wheels are published for Linux, Windows, and macOS. One wheel per platform works for Python 3.11+.
 
----
+## Overview
 
-## Requirements
+The conversion API has no Python runtime dependencies and does not use `ifcopenshell`. Geometry is parsed and written in
+Rust. You fetch the data; the package converts it. There is no HTTP inside the library.
 
-| Component | Version              | Notes                                   |
-|-----------|----------------------|-----------------------------------------|
-| Rust      | 1.98.0 (1.63+ works) | install via [rustup](https://rustup.rs) |
-| Python    | 3.11 or newer        | `requires-python = ">=3.11"`            |
-| maturin   | 1.7 – 1.x            | the PEP 517 build backend               |
-| pyo3      | 0.23                 | pulled in by cargo, nothing to do       |
+- **CityGML 1.0 / 2.0** and **CityJSON 1.1** → one **IFC4** STEP file
+- `mode="typed"` — one product per semantic surface (`IfcWall`, `IfcRoof`, `IfcSlab`, …)
+- `mode="mesh"` — one `IfcBuildingElementProxy` per building
+- Property sets, colours, CAD layer, and owner history are opt-in
+- Coordinates stay in the CRS they arrive in; `epsg` only tags the file
 
-The conversion API has no Python runtime dependencies. The optional
-[`bimfabrikhh_core_rs.psets`](#property-sets) module needs pydantic:
+## Public API
 
-```bash
-pip install "bimfabrikhh_core_rs[psets]"
-```
+### Conversion
 
----
+- **`gml_to_ifc(path, ifc_path, ...)`** — CityGML file or list of files → IFC
+- **`cityjson_to_ifc(source, ifc_path, ...)`** — CityJSON path, list of paths, or document text → IFC
+- **`write_ifc(products, path, ...)`** — IFC from product dicts you built yourself
 
-## Installation with maturin
+### Parse
 
-### 1. Install the Rust toolchain
+- **`parse_gml(path, ...)`** — CityGML → list of building dicts
+- **`parse_cityjson(path, ...)`** — CityJSON file → building dicts
+- **`parse_cityjson_text(text, ...)`** — CityJSON already in memory (after HTTP)
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-rustc --version
-```
+### Optional helpers (`bimfabrikhh_core_rs[psets]`)
 
-### 2. Create and activate a virtual environment
+- **`PsetSpec` / `Attr` / `Const` / `Quantity`** — declarative property-set rules
+- **`hamburg_defaults()` / `attribute_mapping.specs()`** — Hamburg property names
+- **`hamburg_ifc_types()` / `IfcTypeMap`** — surface type → IFC entity
+- **`OwnerIdentity`** — `IfcPerson` / `IfcOrganization` / `IfcApplication`
 
-```bash
-python3 -m venv ~/venvs/bimfabrikhh_core_rs
-source ~/venvs/bimfabrikhh_core_rs/bin/activate
-```
+## Key Features
 
-On Windows use `.\venvs\bimfabrikhh_core_rs\Scripts\activate` instead.
+- **No HTTP** — fetch tiles yourself; pass paths or CityJSON text
+- **Typed or mesh** — per-surface products or one block per building
+- **Declarative psets** — omit `psets=` and none are written
+- **Deterministic GUIDs** — the same input produces a byte-identical IFC
+- **Hamburg-ready** — optional type map, property mapping, `_BIM_Stadtmodell` layer, and Nullpunkt
 
-### 3. Install maturin
-
-```bash
-pip install "maturin>=1.7,<2"
-```
-
-### 4. Build and install into the active venv
-
-```bash
-cd bimfabrikhh_core_rs
-maturin develop
-```
-
-`maturin develop` compiles the crate and installs it into whichever venv is active. It is the
-normal command while developing.
-
-For a build with optimizations — **much** faster on large tiles, and what you want for real
-conversions — use:
-
-```bash
-maturin develop --release
-```
-
-### 5. Verify
-
-```bash
-python -c "import bimfabrikhh_core_rs; print(bimfabrikhh_core_rs.__all__)"
-```
-
-Expected:
-
-```
-['parse_gml', 'parse_cityjson', 'parse_cityjson_text', 'write_ifc', 'gml_to_ifc', 'cityjson_to_ifc']
-```
-
-### Alternatives
-
-An editable install through pip uses the same maturin backend:
-
-```bash
-pip install -e .
-```
-
-To produce a redistributable wheel instead of installing:
-
-```bash
-maturin build --release
-# wheel lands in target/wheels/
-```
-
-### Rebuilding after a change
-
-Editing any `.rs` file requires a rebuild; editing files under `python/` does not.
-
-```bash
-source ~/.cargo/env
-source ~/venvs/bimfabrikhh_core_rs/bin/activate
-maturin develop --release
-```
-
-If maturin cannot find your interpreter, point it at one explicitly with
-`maturin develop -i $(which python)`, or export `VIRTUAL_ENV` before calling it.
-
----
-
-## Quick start
+## Complete Working Example
 
 ```python
 from bimfabrikhh_core_rs import cityjson_to_ifc, gml_to_ifc, parse_cityjson_text
 
-# CityGML tile -> typed IFC (IfcWall / IfcRoof / IfcSlab per surface)
+# CityGML tile → typed IFC (IfcWall / IfcRoof / IfcSlab per surface)
 gml_to_ifc("tile.gml", "out.ifc", mode="typed", epsg=25833)
 
-# CityJSON -> one IfcBuildingElementProxy mesh per building
-cityjson_to_ifc(["page_00000.city.json"], "blocks.ifc", mode="mesh", epsg=25832)
+# CityJSON → one IfcBuildingElementProxy mesh per building
+cityjson_to_ifc("page.city.json", "blocks.ifc", mode="mesh", epsg=25832)
 
 # Inspect before writing
-buildings = parse_cityjson_text(open("page_00000.city.json").read())
+buildings = parse_cityjson_text(open("page.city.json").read())
 print(len(buildings), buildings[0]["gml_name"])
 ```
 
----
+Crop, colours, and Hamburg types:
 
-## API
+```python
+from bimfabrikhh_core_rs import cityjson_to_ifc
+from bimfabrikhh_core_rs.attribute_mapping import specs
+from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 
-| Function                                        | Purpose                                                   |
-|-------------------------------------------------|-----------------------------------------------------------|
-| `parse_gml(path, ...)`                          | CityGML file to a list of building dicts                  |
-| `parse_cityjson(path, ...)`                     | CityJSON file to building dicts                           |
-| `parse_cityjson_text(text, ...)`                | CityJSON already in memory (post-HTTP)                    |
-| `gml_to_ifc(gml_path, ifc_path, ...)`           | CityGML (one file or a list) to one IFC                   |
-| `cityjson_to_ifc(source, ifc_path, ...)`        | CityJSON path, list of paths, or document text to one IFC |
-| `write_ifc(products, path, ...)`                | IFC from product dicts you built yourself                 |
+cityjson_to_ifc(
+        "page.city.json",
+        "hamburg.ifc",
+        mode="typed",
+        epsg=25832,
+        bbox_epsg=(565012.0, 5933559.0, 566570.0, 5934571.0),
+        basepoint=(565012.0, 5933559.0),
+        ifc_types=hamburg_ifc_types(),
+        psets=specs(),
+        cad_layer=True,
+)
+```
 
-`mode` is `"typed"` or `"mesh"`. Typed gives one IFC product per semantic surface; mesh gives one
-product per building. Product types come from `ifc_types=` — omit it and everything is
-`IfcBuildingElementProxy`.
-
-`bbox_epsg` crops to `(min_x, min_y, max_x, max_y)` in the projected CRS. `basepoint` sets the
-IFC base point. The `epsg` default is **25833** on the CityGML entry points and **25832** on the
-CityJSON ones, matching the usual Sachsen and Hamburg sources.
-
-Reprojection is out of scope: coordinates are written in the CRS they arrive in, and `epsg` only
-tags the file. Use `pyproj` on the caller side if you need to transform.
-
----
+`mode` is `"typed"` or `"mesh"`. Omit `ifc_types` and every product is `IfcBuildingElementProxy`. Omit `psets` and the
+IFC has no property sets. `bbox_epsg` is `(min_x, min_y, max_x, max_y)` in the projected CRS. Reprojection is out of
+scope — use `pyproj` on the caller side if you need to transform.
 
 ## Property sets
 
-Pass `psets=` a list of specs describing *rules* rather than values. Omit it and the IFC has no
-property sets — Rust does not fill any in. The spec is validated once by pydantic, crosses into
-Rust once, and is then evaluated for every building and surface at native speed.
+Pass `psets=` a list of specs describing rules rather than values. The spec is validated once and evaluated in Rust for
+every building and surface.
 
 ```python
 from bimfabrikhh_core_rs import cityjson_to_ifc
 from bimfabrikhh_core_rs.psets import Attr, Const, PsetSpec, Quantity
 
 building = PsetSpec(
-    name="Pset_Objektinformation",
-    scope="building",
-    properties={
-        "_IDEbene1":       Const("Stadtmodell"),
-        "_StadtmodellLoD": Attr("lod"),
-        "_FunktionGebaeude": Attr("function", catalog="funktion"),
-        "_RelativeHoehe":  Attr("measured_height", decimals=3),
-        "_Dachform":       Attr("roof_type", catalog="dachform"),
-        "_GrundhoeheNN":   Attr("extra:Grundhöhe NN"),  # omitted when the source has no such attribute
-    },
+        name="Pset_Objektinformation",
+        scope="building",
+        properties={
+                "_IDEbene1": Const("Stadtmodell"),
+                "_StadtmodellLoD": Attr("lod"),
+                "_Dachform": Attr("roof_type", catalog="dachform"),
+                "_GrundhoeheNN": Attr("extra:Grundhöhe NN"),
+        },
 )
 surface = PsetSpec(
-    name="BIMFabrikHH_Quantities",
-    scope="surface",
-    properties={
-        "GrossArea":   Quantity("area", decimals=4),
-        "SurfaceType": Quantity("surface_type"),
-    },
+        name="BIMFabrikHH_Quantities",
+        scope="surface",
+        properties={
+                "GrossArea": Quantity("area", decimals=4),
+                "SurfaceType": Quantity("surface_type"),
+        },
 )
 
 cityjson_to_ifc("page.city.json", "out.ifc", epsg=25832, psets=[building, surface])
 ```
 
----
+| Value                                         | Reads                                                                                                                             |
+|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| `Const(value)`                                | a fixed string                                                                                                                    |
+| `Attr(key, catalog=…, decimals=…, default=…)` | a building field (`id`, `gml_name`, `lod`, `function`, `measured_height`, `storeys_above_ground`, `roof_type`, or `extra:<name>`) |
+| `Quantity(key, decimals=…)`                   | surface geometry (`area`, `perimeter`, `tilt`, `surface_type`)                                                                    |
 
-## IFC entity types
+A missing source field omits that property. A plain dict works without pydantic.
 
-Same rule as psets: you pass the map, Rust applies it, and omitting `ifc_types` means no special
-typing. Unmapped surfaces (and mesh products without a `"Building"` key) become
-`IfcBuildingElementProxy`.
+## Other options
 
 ```python
 from bimfabrikhh_core_rs import cityjson_to_ifc
-from bimfabrikhh_core_rs.ifc_types import IfcTypeMap, hamburg_ifc_types
-
-cityjson_to_ifc("page.city.json", "out.ifc", epsg=25832, ifc_types=hamburg_ifc_types())
+from bimfabrikhh_core_rs.ifc_types import IfcTypeMap
+from bimfabrikhh_core_rs.owner import OwnerIdentity
 
 cityjson_to_ifc(
-    "page.city.json",
-    "out.ifc",
-    epsg=25832,
-    ifc_types=IfcTypeMap(RoofSurface="IfcRoof", WallSurface="IfcWall"),
+        "page.city.json",
+        "out.ifc",
+        epsg=25832,
+        ifc_types=IfcTypeMap(RoofSurface="IfcRoof", WallSurface="IfcWall"),
+        colors={"RoofSurface": (1.0, 0.0, 0.0)},
+        owner=OwnerIdentity(organization="BIM-Leitstelle, LGV Hamburg"),
 )
 ```
 
-A plain `{"RoofSurface": "IfcRoof", ...}` dict works without pydantic. `hamburg_ifc_types()` is
-the usual LoD2 map (`IfcRoof` / `IfcWall` / `IfcSlab` / `IfcCovering`); you still have to pass it.
-
-| Value                                         | Reads                                                                                                                            |
-|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
-| `Const(value)`                                | a fixed string, the same for every object                                                                                        |
-| `Attr(key, catalog=…, decimals=…, default=…)` | a building field: `id`, `gml_name`, `lod`, `function`, `measured_height`, `storeys_above_ground`, `roof_type`, or `extra:<name>` |
-| `Quantity(key, decimals=…)`                   | geometry of the surface: `area`, `perimeter`, `tilt`, `surface_type`                                                             |
-
-`scope="building"` evaluates once per building and attaches to the `IfcBuilding`;
-`scope="surface"` evaluates per surface product and is the only scope where `Quantity` resolves.
-In mesh mode both scopes land on the proxy, and `area` / `perimeter` are the building-wide sums.
-
-`catalog` maps a code to a label, either `"funktion"` / `"dachform"` for the built-in
-Objektartenkatalog or your own `{code: label}` dict. `decimals` fixes the number of decimal
-places; omitting it keeps the source precision. `default` fills in when the attribute is missing —
-omit it and the property is dropped for that object instead.
-
-`hamburg_defaults()` is the slim Hamburg helper. `attribute_mapping.specs()` is
-the Pydantic mapping of IFC properties to source fields; a property is omitted
-when that field is missing.
-
-Only the quantities a spec actually asks for get computed, so dropping `perimeter` and `tilt`
-makes the conversion measurably faster.
-
-Properties are written in the order you declare them, both for specs and for the `psets` dicts
-handed to `write_ifc`. Combined with deterministic GUIDs this makes the output
-byte-reproducible: converting the same input twice yields identical files, so IFC output can be
-diffed and checksummed in CI.
-
----
-
-## Colours
-
-Defaults live in one Rust table (`src/color.rs`) and match BIMFabrikHH: roofs `(1, 0, 0)`,
-everything else `(1, 1, 0.498)` including mesh `"Building"`. Pass `colors=` to override; omit
-it and those defaults are used. `styles=False` writes no colour at all.
-
-```python
-cityjson_to_ifc(page, out, epsg=25832, colors=(0.2, 0.4, 0.8))  # one RGB for every product
-cityjson_to_ifc(page, out, epsg=25832, colors={"RoofSurface": (0.6, 0.1, 0.1)})  # rest keep defaults
-```
-
----
-
-## Owner history
-
-`IfcPerson` / `IfcOrganization` / `IfcApplication` default to Salem / bimfabrikhh_core_rs / 0.1.0.
-Pass `owner=` to overlay any of those fields; omit it and the defaults stay. `owner_history=False`
-writes no owner-history entities at all.
-
-```python
-from bimfabrikhh_core_rs.owner import OwnerIdentity
-
-cityjson_to_ifc(page, out, epsg=25832, owner={
-    "family_name": "Salem",
-    "given_name": "Ahmed",
-    "organization": "BIM.Hamburg",
-    "application": "bimfabrikhh_core_rs",
-    "version": "0.1.0",
-})
-cityjson_to_ifc(page, out, epsg=25832, owner=OwnerIdentity(organization="BIM.Hamburg"))
-```
-
-A plain dict works without pydantic. Only keys you set overlay the defaults.
-
----
+Default colours match BIMFabrikHH: roofs red, everything else yellow. `styles=False` writes no colour. Owner history
+defaults to Ahmed Salem / BIM-Leitstelle, LGV Hamburg; `owner_history=False` skips it.
 
 ## Examples
 
-Each script in `examples/` is runnable on its own.
-
-| Script                                      | What it does                                                             |
-|---------------------------------------------|--------------------------------------------------------------------------|
-| `example_one_building_entities.py`          | one CityGML building, typed                                              |
-| `example_one_building_block.py`             | one CityGML building, mesh                                               |
-| `example_one_building_block_layer.py`       | same building, mesh + typed, both with `_BIM_Stadtmodell` layer          |
-| `example_kachel_entities.py` / `_blocks.py` | one `fixtures/` tile (`loop=True` for every `*.gml`)                     |
-| `example_generic_city_model.py`             | Hamburg LoD1 tiles, mesh city model                                      |
-| `example_hamburg_lod2_cityjson.py`          | Hamburg LoD2 via the CityJSON API, typed                                 |
-| `example_hamburg_lod2_cityjson_blocks.py`   | same crop, mesh blocks                                                   |
-| `example_hamburg_lod3.py`                   | Hamburg LoD3 CityGML tiles (external path), typed                        |
-| `example_hamburg_lod3_blocks.py`            | same tiles, one mesh block per building                                  |
-| `example_hamburg_lod3_bbox.py`              | same LoD2 bbox crop over LoD3 tiles, typed                               |
-| `example_hamburg_lod3_bbox_blocks.py`       | same crop, mesh blocks                                                   |
-| `example_pset_spec.py`                      | declarative psets: none unless passed, Hamburg helper, custom convention |
-
-```bash
-python examples/example_one_building_entities.py
-```
-
-The Hamburg CityJSON scripts download from the
-[Hamburg OGC API](https://api.hamburg.de/datasets/v1/lod2_hamburg) using `urllib` and keep the
-pages in memory. They write only the IFC. HTTP lives in the examples, never in the package.
-`example_generic_city_model.py` expects the LoD1 tiles from `BIMFabrikHH_core` next to this
-repository.
-
-The CityGML examples read tiles from `fixtures/`, which are **not** part of the repository because
-they run to tens of megabytes each. See [`fixtures/README.md`](fixtures/README.md) for what to put
-there. The Hamburg LoD3 examples read the CityGRID folder in place and do not copy tiles
-into `fixtures/`. The CityJSON examples need no fixtures.
-
----
-
-## Layout
-
-```
-src/
-  lib.rs            module declarations + the pyo3 entry point
-  api.rs            pure-Rust pipeline (parse -> export -> write), no pyo3
-  bindings/         the pyo3 surface and Python <-> Rust marshalling
-  parse.rs          streaming CityGML parser
-  cityjson.rs       CityJSON 1.1 parser
-  geom.rs           areas, perimeters, tilt, typed vs mesh conversion
-  color.rs          default RGB per surface, optional caller overrides
-  psetspec.rs       caller-supplied pset rules (empty = none)
-  katalog.rs        Objektartenkatalog lookups
-  ifc/              GUID, STEP text, IFC4 writer
-python/bimfabrikhh_core_rs/
-  __init__.py       the importable Python package
-  bimfabrikhh_core_rs.*.so   compiled Rust extension (not imported by users)
-  psets.py          pydantic pset spec builders (optional extra)
-  ifc_types.py      pydantic IFC type map (optional extra)
-  owner.py          pydantic IfcOwnerHistory identity (optional extra)
-```
-
-Because `api.rs` carries no pyo3 types, the conversion can be driven and tested from plain Rust:
-
-```bash
-cargo test
-cargo clippy --all-targets
-```
-
----
+Additional examples are available in
+the [GitHub repository](https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs/tree/main/examples).
 
 ## Links
 
 - **PyPI**: https://pypi.org/project/bimfabrikhh-core-rs/
 - **GitHub**: https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs
 - **Issues**: https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs/issues
+
+## License
+
+This project is licensed under the GNU Lesser General Public License v2.1 (LGPL-2.1).
+
+**Copyright (C) 2026 Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung**
+**BIM-Leitstelle, Ahmed Salem**

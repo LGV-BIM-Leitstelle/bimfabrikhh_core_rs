@@ -1,7 +1,7 @@
 """Identity written into IfcPerson / IfcOrganization / IfcApplication.
 
 Same pattern as ``bimfabrikhh_core_rs.ifc_types``: you pass the identity in, Rust writes
-it. Omit ``owner=`` and the Rust default is used (Salem / bimfabrikhh_core_rs / 0.1.0).
+it. Omit ``owner=`` and the Rust default is used (Ahmed Salem / BIM-Leitstelle, LGV Hamburg).
 ``owner_history=False`` skips the whole owner-history block.
 
     from bimfabrikhh_core_rs import cityjson_to_ifc

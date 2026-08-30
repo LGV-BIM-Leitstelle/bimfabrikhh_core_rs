@@ -152,7 +152,7 @@ fn overlay_owner_field(dst: &mut String, d: &Bound<'_, PyDict>, keys: &[&str]) -
     Ok(())
 }
 
-/// `None` keeps the Rust default (Salem / bimfabrikhh_core_rs). A dict or `to_wire()`
+/// `None` keeps the Rust default (Ahmed Salem / BIM-Leitstelle, LGV Hamburg). A dict or `to_wire()`
 /// object overlays any keys that are present.
 pub fn owner_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<OwnerIdentity> {
     let mut owner = OwnerIdentity::default();
