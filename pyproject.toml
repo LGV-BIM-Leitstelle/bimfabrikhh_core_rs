@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bimfabrikhh_core_rs"
-version = "0.1.0"
+version = "0.1.1"
 description = "Parse CityGML and write IFC4 STEP text from Rust, callable from Python"
 readme = "README.md"
 license = {text = "LGPL-2.1"}

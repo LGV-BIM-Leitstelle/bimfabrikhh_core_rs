@@ -29,7 +29,7 @@ Optional pydantic helpers for property-set specs, IFC type maps, and owner ident
 pip install "bimfabrikhh_core_rs[psets]"
 ```
 
-Wheels are published for Linux, Windows, and macOS. One wheel per platform works for Python 3.11+.
+Wheels are published for Linux x86_64, Windows x64, and macOS Apple Silicon. One wheel per platform works for Python 3.11+.
 
 ## Overview
 

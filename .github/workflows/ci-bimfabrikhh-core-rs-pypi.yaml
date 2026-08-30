@@ -1,13 +1,8 @@
 # Publishes bimfabrikhh_core_rs to PyPI when a GitHub Release is published
 # Repository: https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs
 #
-# Same trigger and trusted-publishing job as ifcfactory. The build jobs use
-# maturin because this is a compiled extension: `python -m build` on Ubuntu
-# would not produce installable Windows / macOS / manylinux wheels.
-#
-# Wheels cover every host BIMFabrik and pip hit without compiling:
-# Linux glibc + musl (x86_64, aarch64), Windows x64, macOS Intel + Apple Silicon.
-# abi3-py311: one wheel per platform works for Python 3.11+.
+# Wheels: Linux x86_64 (WSL/Ubuntu), Windows x64, macOS Apple Silicon.
+# No Intel Mac runner (macos-13 is retired). abi3-py311: one wheel per platform for Python 3.11+.
 name: Publish bimfabrikhh_core_rs to PyPI
 
 on:
@@ -19,12 +14,8 @@ permissions:
 
 jobs:
   linux:
-    name: Linux ${{ matrix.target }}
+    name: Linux x86_64
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64, aarch64]
 
     steps:
       - uses: actions/checkout@v4
@@ -35,18 +26,16 @@ jobs:
           python-version: "3.11"
 
       - name: Run Rust tests
-        if: matrix.target == 'x86_64'
         run: cargo test --release
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
+          target: x86_64
           args: --release --out dist
           manylinux: auto
 
       - name: Install wheel and smoke-import
-        if: matrix.target == 'x86_64'
         run: |
           python -m pip install --upgrade pip
           python -m pip install dist/*.whl
@@ -55,45 +44,12 @@ jobs:
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
-          name: release-dists-linux-${{ matrix.target }}
-          path: dist/
-
-  musllinux:
-    name: musllinux ${{ matrix.target }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64, aarch64]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist
-          manylinux: musllinux_1_2
-
-      - name: Upload distributions
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-dists-musllinux-${{ matrix.target }}
+          name: release-dists-linux-x86_64
           path: dist/
 
   windows:
-    name: Windows ${{ matrix.target }}
+    name: Windows x64
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x64]
 
     steps:
       - uses: actions/checkout@v4
@@ -106,7 +62,7 @@ jobs:
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
+          target: x64
           args: --release --out dist
 
       - name: Install wheel and smoke-import
@@ -118,20 +74,12 @@ jobs:
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
-          name: release-dists-windows-${{ matrix.target }}
+          name: release-dists-windows-x64
           path: dist/
 
   macos:
-    name: macOS ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-13
-            target: x86_64
-          - runner: macos-latest
-            target: aarch64
+    name: macOS aarch64
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +92,7 @@ jobs:
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
+          target: aarch64
           args: --release --out dist
 
       - name: Install wheel and smoke-import
@@ -156,7 +104,7 @@ jobs:
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
-          name: release-dists-macos-${{ matrix.target }}
+          name: release-dists-macos-aarch64
           path: dist/
 
   sdist:
@@ -181,7 +129,7 @@ jobs:
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: [linux, musllinux, windows, macos, sdist]
+    needs: [linux, windows, macos, sdist]
 
     permissions:
       # Required for trusted publishing

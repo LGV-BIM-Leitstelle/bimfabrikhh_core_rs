@@ -34,9 +34,9 @@ impl Default for OwnerIdentity {
             given_name: "Ahmed".into(),
             organization: "BIM-Leitstelle, LGV Hamburg".into(),
             application: "BIMFabrikHH".into(),
-            version: "0.1.0".into(),
+            version: "0.1.1".into(),
             identifier: "BIMFabrikHH".into(),
-            preprocessor: "bimfabrikhh_core_rs 0.1.0".into(),
+            preprocessor: "bimfabrikhh_core_rs 0.1.1".into(),
             originating_system: "BIMFabrikHH".into(),
             authorization: String::new(),
         }

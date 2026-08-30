@@ -47,14 +47,14 @@ class OwnerIdentity(BaseModel):
     # FILE_NAME organization; also IfcOrganization
     organization: Optional[str] = Field(default="BIM-Leitstelle, LGV Hamburg")
     # FILE_NAME preprocessor_version (toolbox, not the product name)
-    preprocessor: Optional[str] = Field(default="bimfabrikhh_core_rs 0.1.0")
+    preprocessor: Optional[str] = Field(default="bimfabrikhh_core_rs 0.1.1")
     # FILE_NAME originating_system (the application)
     originating_system: Optional[str] = Field(default="BIMFabrikHH")
     # FILE_NAME authorization
     authorization: Optional[str] = Field(default="")
     # IfcApplication ApplicationFullName / Version / ApplicationIdentifier
     application: Optional[str] = Field(default="BIMFabrikHH")
-    version: Optional[str] = Field(default="0.1.0")
+    version: Optional[str] = Field(default="0.1.1")
     identifier: Optional[str] = Field(default="BIMFabrikHH")
 
     def to_wire(self) -> dict:
