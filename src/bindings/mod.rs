@@ -12,7 +12,7 @@ use crate::parse::parse_gml_file;
 use crate::types::ParsedBuilding;
 use convert::{
     basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, gml_paths_from_py,
-    ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py,
+    ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py, trees_from_py,
 };
 
 type Bbox = Option<(f64, f64, f64, f64)>;
@@ -24,6 +24,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_cityjson, m)?)?;
     m.add_function(wrap_pyfunction!(parse_cityjson_text, m)?)?;
     m.add_function(wrap_pyfunction!(cityjson_to_ifc, m)?)?;
+    m.add_function(wrap_pyfunction!(trees_to_ifc, m)?)?;
     Ok(())
 }
 
@@ -225,4 +226,49 @@ fn cityjson_to_ifc(
     )?;
     api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, &opts)
         .map_err(PyValueError::new_err)
+}
+
+/// Trunk + crown meshes → one IFC4 STEP file. Python still prepares records.
+///
+/// Each tree dict: ``name``, ``position`` ``(x, y)`` or ``(x, y, z)``,
+/// ``trunk_radius``, ``trunk_height``, ``crown_radius``, ``detail``, ``segments``,
+/// ``include_crown`` / ``is_stump``, optional ``attributes`` (source fields for
+/// ``psets`` specs), optional raw ``psets``, optional colours.
+///
+/// ``psets`` takes ``bimfabrikhh_core_rs.psets.PsetSpec`` objects (or their dicts),
+/// same as ``gml_to_ifc``. Omit it and no property sets are written.
+#[pyfunction]
+#[pyo3(signature = (trees, ifc_path, project_name="Trees_Generic_Project", site_name="Trees_Generic_Site", epsg=25832, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false))]
+#[allow(clippy::too_many_arguments)]
+fn trees_to_ifc(
+    trees: Bound<'_, PyList>,
+    ifc_path: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    cad_layer: bool,
+    owner_history: bool,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<Bound<'_, PyAny>>,
+    owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
+) -> PyResult<String> {
+    let parsed = trees_from_py(&trees)?;
+    let opts = export_options(
+        "mesh",
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        cad_layer,
+        owner_history,
+        basepoint,
+        psets.as_ref(),
+        None,
+        None,
+        owner.as_ref(),
+        progress,
+    )?;
+    api::trees_to_ifc(&parsed, ifc_path, &opts).map_err(PyValueError::new_err)
 }

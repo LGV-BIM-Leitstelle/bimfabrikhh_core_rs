@@ -59,6 +59,15 @@ pub fn upsert_pset(psets: &mut Vec<Pset>, pset: Pset) {
     }
 }
 
+/// Extra body on the same product (tree crown next to the trunk).
+#[derive(Clone, Debug)]
+pub struct ProductPart {
+    pub vertices: Vec<[f64; 3]>,
+    pub faces: Vec<Face>,
+    pub color: Option<[f64; 3]>,
+    pub layer: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Product {
     pub name: String,
@@ -68,6 +77,10 @@ pub struct Product {
     pub faces: Vec<Face>,
     pub psets: Vec<Pset>,
     pub color: Option<[f64; 3]>,
+    pub layer: Option<String>,
+    pub extra: Vec<ProductPart>,
+    /// When set, geometry stays local and this is written as `IfcLocalPlacement`.
+    pub placement: Option<[f64; 3]>,
 }
 
 #[derive(Clone, Debug)]

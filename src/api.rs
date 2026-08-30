@@ -14,8 +14,9 @@ use crate::color::Colors;
 use crate::geom::{buildings_to_export, ExportConfig};
 use crate::ifc::{write_ifc_file, OwnerIdentity, WriteOptions};
 use crate::parse::{parse_gml_file, BboxUtm};
-use crate::psetspec::PsetSpec;
-use crate::types::{BuildingExport, ParsedBuilding, Product};
+use crate::psetspec::{self, PsetSpec, Scope};
+use crate::tree::{tree_attr_map, trees_to_products, TreeInput};
+use crate::types::{upsert_pset, BuildingExport, ParsedBuilding, Product};
 
 pub fn is_mesh(mode: &str) -> bool {
     mode.eq_ignore_ascii_case("mesh")
@@ -165,6 +166,25 @@ pub fn cityjson_to_ifc(
 ) -> Result<String, String> {
     let buildings = parse_cityjson_source(source, building_id_filter, bbox_epsg)?;
     write_buildings(&buildings, ifc_path, opts)
+}
+
+/// TreesGenericApp path: Python prepares records, Rust meshes trunk + crown and writes STEP.
+pub fn trees_to_ifc(trees: &[TreeInput], ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
+    if trees.is_empty() {
+        return Err("no trees to write".into());
+    }
+    let mut products = trees_to_products(trees);
+    if !opts.psets.is_empty() {
+        for (product, tree) in products.iter_mut().zip(trees.iter()) {
+            for pset in psetspec::eval_map(&opts.psets, Scope::Building, &tree_attr_map(tree)) {
+                upsert_pset(&mut product.psets, pset);
+            }
+        }
+    }
+    let mut write = opts.write_options();
+    write.city_model = true;
+    write_ifc_file(&group_products(products), ifc_path, &write)?;
+    Ok(ifc_path.to_string())
 }
 
 /// Write IFC4 STEP from products that were built outside this crate.

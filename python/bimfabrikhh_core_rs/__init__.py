@@ -26,6 +26,7 @@ from bimfabrikhh_core_rs.bimfabrikhh_core_rs import (
     parse_cityjson,
     parse_cityjson_text,
     parse_gml,
+    trees_to_ifc,
     write_ifc,
 )
 
@@ -36,4 +37,5 @@ __all__ = [
     "write_ifc",
     "gml_to_ifc",
     "cityjson_to_ifc",
+    "trees_to_ifc",
 ]

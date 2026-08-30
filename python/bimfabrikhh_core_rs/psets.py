@@ -46,6 +46,7 @@ __all__ = [
     "PsetSpec",
     "Quantity",
     "ATTR_KEYS",
+    "TREE_ATTR_KEYS",
     "QUANTITY_KEYS",
     "bimfabrik_quantities",
     "hamburg_defaults",
@@ -65,6 +66,28 @@ ATTR_KEYS = (
     "measured_height",
     "storeys_above_ground",
     "roof_type",
+)
+
+#: Tree record / mesh fields an :class:`Attr` may read (``trees_to_ifc``).
+TREE_ATTR_KEYS = (
+    "name",
+    "trunk_radius",
+    "trunk_height",
+    "crown_radius",
+    "art_baum",
+    "aufnahmedatum_vermessung",
+    "baumhoehe",
+    "baumhoehe_bemerkung",
+    "baumnummer",
+    "bemerkung",
+    "bezirk",
+    "gattung_deutsch",
+    "kronendurchmesser",
+    "pflanzjahr",
+    "stadtteil",
+    "stammdurchmesser",
+    "status_vegetation",
+    "strassenname",
 )
 
 #: Geometric quantities a :class:`Quantity` may read. In mesh mode ``area`` and
@@ -117,9 +140,12 @@ class Attr(BaseModel):
             if not v[len("extra:") :]:
                 raise ValueError("'extra:' needs an attribute name after the colon")
             return v
-        if v not in ATTR_KEYS:
-            raise ValueError(f"unknown attribute key {v!r}; expected one of {', '.join(ATTR_KEYS)} or 'extra:<name>'")
-        return v
+        if v in ATTR_KEYS or v in TREE_ATTR_KEYS:
+            return v
+        raise ValueError(
+            f"unknown attribute key {v!r}; expected one of {', '.join(ATTR_KEYS)}, "
+            f"{', '.join(TREE_ATTR_KEYS)} or 'extra:<name>'"
+        )
 
 
 class Quantity(BaseModel):

@@ -7,9 +7,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
 
 use crate::api::CityJsonSource;
-use crate::color::Colors;
+use crate::color::{Colors, CROWN_RGB, TRUNK_RGB};
 use crate::ifc::OwnerIdentity;
 use crate::psetspec::{AttrKey, Catalog, PsetSpec, QtyKey, Scope, Value};
+use crate::tree::TreeInput;
 use crate::types::{upsert_pset, Face, ParsedBuilding, Product, Pset};
 
 pub fn building_to_py(py: Python<'_>, b: &ParsedBuilding) -> PyResult<PyObject> {
@@ -95,6 +96,9 @@ pub fn product_from_py(item: &Bound<'_, PyDict>) -> PyResult<Product> {
         faces,
         psets,
         color: color_from_py(item)?,
+        layer: None,
+        extra: Vec::new(),
+        placement: None,
     })
 }
 
@@ -177,11 +181,35 @@ pub fn owner_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<OwnerIdentity> 
     overlay_owner_field(&mut owner.application, &d, &["application", "app", "ApplicationFullName"])?;
     overlay_owner_field(&mut owner.version, &d, &["version", "Version"])?;
     overlay_owner_field(&mut owner.identifier, &d, &["identifier", "id", "ApplicationIdentifier"])?;
+    overlay_owner_field(
+        &mut owner.preprocessor,
+        &d,
+        &["preprocessor", "preprocessor_version"],
+    )?;
+    overlay_owner_field(
+        &mut owner.originating_system,
+        &d,
+        &["originating_system", "system"],
+    )?;
+    overlay_owner_field(
+        &mut owner.authorization,
+        &d,
+        &["authorization", "authorisation"],
+    )?;
     Ok(owner)
 }
 
 /// Product psets arrive as `{pset_name: {property: value}}`. Python dicts keep
 /// insertion order, so that order carries through to the written IFC.
+fn attrs_from_py(obj: &Bound<'_, PyAny>) -> PyResult<HashMap<String, String>> {
+    let d = as_dict(obj, "attributes")?;
+    let mut out = HashMap::new();
+    for (key, value) in d.iter() {
+        out.insert(key.extract()?, any_to_string(&value)?);
+    }
+    Ok(out)
+}
+
 fn psets_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Pset>> {
     let mut out = Vec::new();
     for (name, props) in as_dict(obj, "psets")?.iter() {
@@ -194,6 +222,76 @@ fn psets_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Pset>> {
         upsert_pset(&mut out, Pset::new(name, properties));
     }
     Ok(out)
+}
+
+pub fn trees_from_py(trees: &Bound<'_, PyList>) -> PyResult<Vec<TreeInput>> {
+    let mut out = Vec::new();
+    for (i, item) in trees.iter().enumerate() {
+        let d = item
+            .downcast::<PyDict>()
+            .map_err(|_| PyValueError::new_err("trees_to_ifc expects a list of dicts"))?;
+        let name: String = dict_or(d, "name", format!("Baum_{:03}", i + 1));
+        let pos = xyz_from_py(d, "position")?;
+        let include_crown = !dict_or(d, "is_stump", false) && dict_or(d, "include_crown", true);
+        let psets = match d.get_item("psets")? {
+            Some(v) if !v.is_none() => psets_from_py(&v)?,
+            _ => Vec::new(),
+        };
+        let attributes = match d.get_item("attributes")? {
+            Some(v) if !v.is_none() => attrs_from_py(&v)?,
+            _ => HashMap::new(),
+        };
+        out.push(TreeInput {
+            name,
+            position: pos,
+            trunk_radius: dict_or(d, "trunk_radius", 0.3),
+            trunk_height: dict_or(d, "trunk_height", 4.0),
+            trunk_segments: dict_or(d, "segments", dict_or(d, "trunk_segments", 8u32)),
+            crown_radius: dict_or(d, "crown_radius", 2.5),
+            crown_detail: dict_or(d, "detail", dict_or(d, "crown_detail", 1u32)),
+            include_crown,
+            psets,
+            attributes,
+            trunk_color: rgb_or(d, "trunk_color", TRUNK_RGB)?,
+            crown_color: rgb_or(d, "crown_color", CROWN_RGB)?,
+        });
+    }
+    Ok(out)
+}
+
+fn xyz_from_py(d: &Bound<'_, PyDict>, key: &str) -> PyResult<[f64; 3]> {
+    let v = d
+        .get_item(key)?
+        .ok_or_else(|| PyValueError::new_err(format!("missing key '{key}'")))?;
+    let nums: Vec<f64> = v.extract().map_err(|_| {
+        PyValueError::new_err(format!("{key} must be (x, y) or (x, y, z)"))
+    })?;
+    match nums.len() {
+        2 => Ok([nums[0], nums[1], 0.0]),
+        3 => Ok([nums[0], nums[1], nums[2]]),
+        n => Err(PyValueError::new_err(format!("{key} needs 2 or 3 numbers, got {n}"))),
+    }
+}
+
+fn rgb_or(d: &Bound<'_, PyDict>, key: &str, default: [f64; 3]) -> PyResult<[f64; 3]> {
+    match d.get_item(key)? {
+        Some(v) if !v.is_none() => rgb_style_from_py(&v),
+        _ => Ok(default),
+    }
+}
+
+fn rgb_style_from_py(v: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
+    let nums: Vec<f64> = v
+        .extract()
+        .map_err(|_| PyValueError::new_err("color must be 3 numbers (0..1 or 0..255)"))?;
+    if nums.len() != 3 {
+        return Err(PyValueError::new_err(format!("color needs 3 components, got {}", nums.len())));
+    }
+    if nums.iter().any(|x| *x > 1.0) {
+        Ok([nums[0] / 255.0, nums[1] / 255.0, nums[2] / 255.0])
+    } else {
+        Ok([nums[0], nums[1], nums[2]])
+    }
 }
 
 pub fn products_from_py(products: &Bound<'_, PyList>) -> PyResult<Vec<Product>> {

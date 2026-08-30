@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::color::{BASEPOINT_RGB, BASEPOINT_SIZE, DEFAULT_RGB};
-use crate::types::{BuildingExport, Face, Product, Pset};
+use crate::types::{BuildingExport, Face, Product, ProductPart, Pset};
 
 use super::guid::ifc_gid;
 use super::step::{format_real, step_str, Ids};
@@ -17,6 +19,12 @@ pub struct OwnerIdentity {
     pub application: String,
     pub version: String,
     pub identifier: String,
+    /// FILE_NAME preprocessor_version (toolbox).
+    pub preprocessor: String,
+    /// FILE_NAME originating_system (the application).
+    pub originating_system: String,
+    /// FILE_NAME authorization (often empty).
+    pub authorization: String,
 }
 
 impl Default for OwnerIdentity {
@@ -25,9 +33,12 @@ impl Default for OwnerIdentity {
             family_name: "Salem".into(),
             given_name: "Ahmed".into(),
             organization: "BIM-Leitstelle, LGV Hamburg".into(),
-            application: "bimfabrikhh_core_rs".into(),
+            application: "BIMFabrikHH".into(),
             version: "0.1.0".into(),
-            identifier: "bimfabrikhh_core_rs".into(),
+            identifier: "BIMFabrikHH".into(),
+            preprocessor: "bimfabrikhh_core_rs 0.1.0".into(),
+            originating_system: "BIMFabrikHH".into(),
+            authorization: String::new(),
         }
     }
 }
@@ -84,7 +95,8 @@ pub fn write_ifc_file(
     }
     let file = File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
     let mut w = BufWriter::new(file);
-    write_ifc(&mut w, buildings, opts).map_err(|e| format!("write {}: {e}", path.display()))?;
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("out.ifc");
+    write_ifc(&mut w, buildings, opts, file_name).map_err(|e| format!("write {}: {e}", path.display()))?;
     w.flush().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -171,14 +183,76 @@ fn write_product_geom<W: Write>(
     w: &mut W,
     id: &mut Ids,
     sub: u32,
-    place: u32,
+    site_place: u32,
+    dir_z: u32,
+    dir_x: u32,
     owner: &str,
     product: &Product,
     pi: usize,
     styles: bool,
-) -> std::io::Result<(u32, u32)> {
+) -> std::io::Result<(u32, Vec<(u32, Option<String>, Option<[f64; 3]>)>)> {
+    let primary = ProductPart {
+        vertices: product.vertices.clone(),
+        faces: product.faces.clone(),
+        color: product.color,
+        layer: product.layer.clone(),
+    };
+    let mut parts = vec![primary];
+    parts.extend(product.extra.iter().cloned());
+
+    let mut item_refs = Vec::new();
+    let mut layer_hits = Vec::new();
+    for part in &parts {
+        let faceset = write_mesh_part(w, id, part, styles)?;
+        item_refs.push(format!("#{faceset}"));
+        layer_hits.push((faceset, part.layer.clone(), part.color));
+    }
+
+    let place = if let Some([x, y, z]) = product.placement {
+        let pt = id.next();
+        let axis = id.next();
+        let loc = id.next();
+        writeln!(
+            w,
+            "#{pt}=IFCCARTESIANPOINT(({},{},{}));",
+            format_real(x),
+            format_real(y),
+            format_real(z),
+        )?;
+        writeln!(w, "#{axis}=IFCAXIS2PLACEMENT3D(#{pt},#{dir_z},#{dir_x});")?;
+        writeln!(w, "#{loc}=IFCLOCALPLACEMENT(#{site_place},#{axis});")?;
+        loc
+    } else {
+        site_place
+    };
+
+    let shape = id.next();
+    let pds = id.next();
+    let prod = id.next();
+    writeln!(
+        w,
+        "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',({items}));",
+        items = item_refs.join(","),
+    )?;
+    writeln!(w, "#{pds}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}));")?;
+    let ifc_type = product.ifc_type.to_ascii_uppercase();
+    writeln!(
+        w,
+        "#{prod}={ifc_type}({gid},{owner}{name},$,$,#{place},#{pds},$,$);",
+        gid = step_str(&ifc_gid(&format!("{}-{pi}", product.name))),
+        name = step_str(&product.name),
+    )?;
+    Ok((prod, layer_hits))
+}
+
+fn write_mesh_part<W: Write>(
+    w: &mut W,
+    id: &mut Ids,
+    part: &ProductPart,
+    styles: bool,
+) -> std::io::Result<u32> {
     let list = id.next();
-    let pts = product
+    let pts = part
         .vertices
         .iter()
         .map(|p| format!("({},{},{})", format_real(p[0]), format_real(p[1]), format_real(p[2])))
@@ -187,7 +261,7 @@ fn write_product_geom<W: Write>(
     writeln!(w, "#{list}=IFCCARTESIANPOINTLIST3D(({pts}));")?;
 
     let mut face_refs = Vec::new();
-    for face in &product.faces {
+    for face in &part.faces {
         let fid = id.next();
         match face {
             Face::Simple(idx) => {
@@ -223,39 +297,67 @@ fn write_product_geom<W: Write>(
     )?;
 
     if styles {
-        if let Some(rgb) = product.color {
+        if let Some(rgb) = part.color {
             write_item_style(w, id, faceset, rgb)?;
         }
     }
+    Ok(faceset)
+}
 
-    let shape = id.next();
-    let pds = id.next();
-    let prod = id.next();
-    writeln!(
-        w,
-        "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',(#{faceset}));"
-    )?;
-    writeln!(w, "#{pds}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}));")?;
-    let ifc_type = product.ifc_type.to_ascii_uppercase();
-    writeln!(
-        w,
-        "#{prod}={ifc_type}({gid},{owner}{name},$,$,#{place},#{pds},$,$);",
-        gid = step_str(&ifc_gid(&format!("{}-{pi}", product.name))),
-        name = step_str(&product.name),
-    )?;
-    Ok((prod, faceset))
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// UTC Y-M-D h:m:s from Unix seconds (Howard Hinnant civil_from_days).
+fn utc_ymdhms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
+    let z = secs.div_euclid(86400) + 719468;
+    let era = z.div_euclid(146097);
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i32 + era as i32 * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    let tod = secs.rem_euclid(86400) as u32;
+    (y, m, d, tod / 3600, (tod % 3600) / 60, tod % 60)
+}
+
+fn file_name_stamp(secs: i64) -> String {
+    let (y, m, d, h, min, s) = utc_ymdhms(secs);
+    format!("{y:04}-{m:02}-{d:02}T{h:02}:{min:02}:{s:02}")
 }
 
 fn write_ifc<W: Write>(
     w: &mut W,
     buildings: &[BuildingExport],
     opts: &WriteOptions,
+    file_name: &str,
 ) -> std::io::Result<()> {
     let mut id = Ids::new();
     writeln!(w, "ISO-10303-21;")?;
     writeln!(w, "HEADER;")?;
-    writeln!(w, "FILE_DESCRIPTION(('ViewDefinition [Ifc4ReferenceView]'),'2;1');")?;
-    writeln!(w, "FILE_NAME('','',(''),(''),'bimfabrikhh_core_rs','bimfabrikhh_core_rs','');")?;
+    let created = unix_now();
+    let ohn = &opts.owner;
+    let author = format!("{} {}", ohn.given_name, ohn.family_name);
+    // Header Implementation Guide: CoordinationView is the agreed ViewDefinition name.
+    // Ifc4ReferenceView is not in that list (HEADER_03 on many checkers).
+    writeln!(w, "FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');")?;
+    writeln!(
+        w,
+        "FILE_NAME({name},{stamp},({author}),({org}),{pre},{sys},{auth});",
+        name = step_str(file_name),
+        stamp = step_str(&file_name_stamp(created)),
+        author = step_str(&author),
+        org = step_str(&ohn.organization),
+        pre = step_str(&ohn.preprocessor),
+        sys = step_str(&ohn.originating_system),
+        auth = step_str(&ohn.authorization),
+    )?;
     writeln!(w, "FILE_SCHEMA(('IFC4'));")?;
     writeln!(w, "ENDSEC;")?;
     writeln!(w, "DATA;")?;
@@ -286,32 +388,32 @@ fn write_ifc<W: Write>(
         let org = id.next();
         let pao = id.next();
         let app = id.next();
-        let oh = id.next();
-        let oh_id = &opts.owner;
+        let ohn = id.next();
         writeln!(
             w,
             "#{person}=IFCPERSON($,{family},{given},$,$,$,$,$);",
-            family = step_str(&oh_id.family_name),
-            given = step_str(&oh_id.given_name),
+            family = step_str(&opts.owner.family_name),
+            given = step_str(&opts.owner.given_name),
         )?;
         writeln!(
             w,
             "#{org}=IFCORGANIZATION($,{name},$,$,$);",
-            name = step_str(&oh_id.organization),
+            name = step_str(&opts.owner.organization),
         )?;
         writeln!(w, "#{pao}=IFCPERSONANDORGANIZATION(#{person},#{org},$);")?;
         writeln!(
             w,
             "#{app}=IFCAPPLICATION(#{org},{version},{full},{ident});",
-            version = step_str(&oh_id.version),
-            full = step_str(&oh_id.application),
-            ident = step_str(&oh_id.identifier),
+            version = step_str(&opts.owner.version),
+            full = step_str(&opts.owner.application),
+            ident = step_str(&opts.owner.identifier),
         )?;
+        // IFC4 CORRECTCHANGEACTION: ADDED without LastModifiedDate is invalid.
         writeln!(
             w,
-            "#{oh}=IFCOWNERHISTORY(#{pao},#{app},$,.ADDED.,$,$,$,0);"
+            "#{ohn}=IFCOWNERHISTORY(#{pao},#{app},$,.NOTDEFINED.,$,$,$,{created});"
         )?;
-        owner = format!("#{oh},");
+        owner = format!("#{ohn},");
     }
 
     writeln!(w, "#{unit_len}=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);")?;
@@ -369,7 +471,7 @@ fn write_ifc<W: Write>(
     let mut written = 0usize;
     let mut building_ids = Vec::new();
     let mut city_product_refs: Vec<String> = Vec::new();
-    let mut layer_items: Vec<String> = Vec::new();
+    let mut layer_items: BTreeMap<String, (Vec<String>, [f64; 3])> = BTreeMap::new();
 
     let city_bid = if opts.city_model {
         let bid = id.next();
@@ -403,11 +505,17 @@ fn write_ifc<W: Write>(
 
         let mut product_refs = Vec::new();
         for (pi, product) in bldg.products.iter().enumerate() {
-            let (prod, faceset) = write_product_geom(w, &mut id, sub, place, &owner, product, pi, opts.styles)?;
+            let (prod, hits) =
+                write_product_geom(w, &mut id, sub, place, dir_z, dir_x, &owner, product, pi, opts.styles)?;
             write_psets(w, &mut id, &owner, prod, &product.psets, &product.name)?;
             product_refs.push(format!("#{prod}"));
             if opts.cad_layer {
-                layer_items.push(format!("#{faceset}"));
+                for (faceset, layer, color) in hits {
+                    let name = layer.unwrap_or_else(|| "_BIM_Stadtmodell".into());
+                    let rgb = color.unwrap_or(DEFAULT_RGB);
+                    let entry = layer_items.entry(name).or_insert_with(|| (Vec::new(), rgb));
+                    entry.0.push(format!("#{faceset}"));
+                }
             }
             written += 1;
             if opts.progress && (written.is_multiple_of(50) || written == total_products) {
@@ -450,25 +558,31 @@ fn write_ifc<W: Write>(
     }
 
     if opts.cad_layer && !layer_items.is_empty() {
-        let col = id.next();
-        let shade = id.next();
-        let style = id.next();
-        let layer = id.next();
-        let [r, g, b] = DEFAULT_RGB;
-        writeln!(
-            w,
-            "#{col}=IFCCOLOURRGB('LayerColor',{r},{g},{b});",
-            r = format_real(r),
-            g = format_real(g),
-            b = format_real(b),
-        )?;
-        writeln!(w, "#{shade}=IFCSURFACESTYLESHADING(#{col},0.);")?;
-        writeln!(w, "#{style}=IFCSURFACESTYLE('LayerStyle',.POSITIVE.,(#{shade}));")?;
-        writeln!(
-            w,
-            "#{layer}=IFCPRESENTATIONLAYERWITHSTYLE('_BIM_Stadtmodell',$,({items}),$,.T.,.F.,.F.,(#{style}));",
-            items = layer_items.join(","),
-        )?;
+        for (name, (items, rgb)) in &layer_items {
+            if items.is_empty() {
+                continue;
+            }
+            let col = id.next();
+            let shade = id.next();
+            let style = id.next();
+            let layer = id.next();
+            let [r, g, b] = *rgb;
+            writeln!(
+                w,
+                "#{col}=IFCCOLOURRGB('LayerColor',{r},{g},{b});",
+                r = format_real(r),
+                g = format_real(g),
+                b = format_real(b),
+            )?;
+            writeln!(w, "#{shade}=IFCSURFACESTYLESHADING(#{col},0.);")?;
+            writeln!(w, "#{style}=IFCSURFACESTYLE('LayerStyle',.POSITIVE.,(#{shade}));")?;
+            writeln!(
+                w,
+                "#{layer}=IFCPRESENTATIONLAYERWITHSTYLE({layer_name},$,({items}),$,.T.,.F.,.F.,(#{style}));",
+                layer_name = step_str(name),
+                items = items.join(","),
+            )?;
+        }
     }
 
     if !building_ids.is_empty() {
@@ -556,4 +670,16 @@ fn write_basepoint<W: Write>(
         gid = step_str(&ifc_gid("basepoint")),
     )?;
     Ok(prod)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unix_epoch_formats_as_iso() {
+        assert_eq!(file_name_stamp(0), "1970-01-01T00:00:00");
+        assert_eq!(file_name_stamp(86400), "1970-01-02T00:00:00");
+        assert_eq!(file_name_stamp(1_700_000_000), "2023-11-14T22:13:20");
+    }
 }

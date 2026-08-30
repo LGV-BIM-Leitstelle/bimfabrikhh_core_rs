@@ -11,6 +11,10 @@ pub const ROOF_RGB: [f64; 3] = [1.0, 0.0, 0.0];
 pub const BASEPOINT_RGB: [f64; 3] = [239.0 / 255.0, 109.0 / 255.0, 109.0 / 255.0];
 /// City / intern Nullpunkt edge length in metres (`_DEFAULT_BASEPOINT_SIZE`).
 pub const BASEPOINT_SIZE: f64 = 8.0;
+/// Tree trunk. Same as TreesGenericApp `DEFAULT_TRUNK_COLOR` (112, 69, 46).
+pub const TRUNK_RGB: [f64; 3] = [112.0 / 255.0, 69.0 / 255.0, 46.0 / 255.0];
+/// Tree crown. Same as TreesGenericApp `DEFAULT_CROWN_COLOR` (33, 128, 46).
+pub const CROWN_RGB: [f64; 3] = [33.0 / 255.0, 128.0 / 255.0, 46.0 / 255.0];
 
 /// Caller colour input. Missing keys (and [`Colors::Defaults`]) use [`default_rgb`].
 #[derive(Clone, Debug, Default)]

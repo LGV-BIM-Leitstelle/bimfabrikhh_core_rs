@@ -186,6 +186,9 @@ fn typed_products(
                 } else {
                     None
                 },
+                layer: None,
+                extra: Vec::new(),
+                placement: None,
             }
         })
         .collect()
@@ -264,6 +267,9 @@ fn mesh_product(
         } else {
             None
         },
+        layer: None,
+        extra: Vec::new(),
+        placement: None,
     })
 }
 

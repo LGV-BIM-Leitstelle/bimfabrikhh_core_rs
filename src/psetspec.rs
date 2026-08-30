@@ -54,10 +54,7 @@ impl AttrKey {
             "measured_height" => Ok(AttrKey::MeasuredHeight),
             "storeys_above_ground" => Ok(AttrKey::StoreysAboveGround),
             "roof_type" => Ok(AttrKey::RoofType),
-            other => Err(format!(
-                "unknown attribute key '{other}'; expected one of id, gml_name, lod, function, \
-                 measured_height, storeys_above_ground, roof_type, or 'extra:<name>'"
-            )),
+            other => Ok(AttrKey::Extra(other.to_string())),
         }
     }
 }
@@ -218,6 +215,34 @@ impl Value {
             }
         }
     }
+
+    fn render_map(&self, attrs: &HashMap<String, String>) -> Option<String> {
+        match self {
+            Value::Const(v) => Some(v.clone()),
+            Value::Attr { key, catalog, decimals, default } => {
+                let raw = match key {
+                    AttrKey::Id => attrs.get("id").or_else(|| attrs.get("name")).cloned(),
+                    AttrKey::GmlName => attrs.get("gml_name").cloned(),
+                    AttrKey::Lod => attrs.get("lod").cloned(),
+                    AttrKey::Function => attrs.get("function").cloned(),
+                    AttrKey::MeasuredHeight => attrs.get("measured_height").cloned(),
+                    AttrKey::StoreysAboveGround => attrs.get("storeys_above_ground").cloned(),
+                    AttrKey::RoofType => attrs.get("roof_type").cloned(),
+                    AttrKey::Extra(name) => attrs.get(name).cloned(),
+                };
+                let raw = raw.map(|s| match (decimals, s.parse::<f64>()) {
+                    (Some(d), Ok(n)) => fmt_f64(n, Some(*d)),
+                    _ => s,
+                });
+                let mapped = match (raw, catalog) {
+                    (Some(code), Some(cat)) => cat.label(&code),
+                    (raw, _) => raw,
+                };
+                mapped.or_else(|| default.clone())
+            }
+            Value::Quantity { .. } => None,
+        }
+    }
 }
 
 /// Evaluate every spec of `scope` for one building (and, for surface scope, one
@@ -234,6 +259,23 @@ pub fn eval(
         let mut props = Vec::with_capacity(spec.properties.len());
         for (name, value) in &spec.properties {
             if let Some(rendered) = value.render(b, facts) {
+                props.push((name.clone(), rendered));
+            }
+        }
+        if !props.is_empty() {
+            upsert_pset(&mut out, Pset::new(spec.name.clone(), props));
+        }
+    }
+    out
+}
+
+/// Same rules as [`eval`], but values come from a flat attribute map (trees).
+pub fn eval_map(specs: &[PsetSpec], scope: Scope, attrs: &HashMap<String, String>) -> Vec<Pset> {
+    let mut out: Vec<Pset> = Vec::new();
+    for spec in specs.iter().filter(|s| s.scope == scope) {
+        let mut props = Vec::with_capacity(spec.properties.len());
+        for (name, value) in &spec.properties {
+            if let Some(rendered) = value.render_map(attrs) {
                 props.push((name.clone(), rendered));
             }
         }
@@ -420,10 +462,53 @@ mod tests {
 
     #[test]
     fn rejects_unknown_keys() {
-        assert!(AttrKey::parse("nope").is_err());
+        assert!(matches!(AttrKey::parse("nope"), Ok(AttrKey::Extra(n)) if n == "nope"));
         assert!(AttrKey::parse("extra:").is_err());
         assert!(QtyKey::parse("volume").is_err());
         assert!(Scope::parse("product").is_err());
         assert!(AttrKey::parse("extra:Gemeinde").is_ok());
+    }
+
+    #[test]
+    fn eval_map_reads_tree_attributes() {
+        let specs = spec(vec![
+            ("_Gattung".into(), Value::Const("Gehoelz".into())),
+            (
+                "_Baumnummer".into(),
+                Value::Attr {
+                    key: AttrKey::Extra("baumnummer".into()),
+                    catalog: None,
+                    decimals: None,
+                    default: None,
+                },
+            ),
+            (
+                "_Kronendurchmesser".into(),
+                Value::Attr {
+                    key: AttrKey::Extra("kronendurchmesser".into()),
+                    catalog: None,
+                    decimals: Some(2),
+                    default: None,
+                },
+            ),
+            (
+                "_Missing".into(),
+                Value::Attr {
+                    key: AttrKey::Extra("nope".into()),
+                    catalog: None,
+                    decimals: None,
+                    default: None,
+                },
+            ),
+        ]);
+        let attrs = HashMap::from([
+            ("baumnummer".into(), "001".into()),
+            ("kronendurchmesser".into(), "4.0".into()),
+        ]);
+        let p = props_of(&eval_map(&specs, Scope::Building, &attrs), "P");
+        assert_eq!(p["_Gattung"], "Gehoelz");
+        assert_eq!(p["_Baumnummer"], "001");
+        assert_eq!(p["_Kronendurchmesser"], "4.00");
+        assert!(!p.contains_key("_Missing"));
     }
 }

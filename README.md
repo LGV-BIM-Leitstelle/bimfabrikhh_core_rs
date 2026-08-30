@@ -49,6 +49,7 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 - **`gml_to_ifc(path, ifc_path, ...)`** — CityGML file or list of files → IFC
 - **`cityjson_to_ifc(source, ifc_path, ...)`** — CityJSON path, list of paths, or document text → IFC
 - **`write_ifc(products, path, ...)`** — IFC from product dicts you built yourself
+- **`trees_to_ifc(trees, ifc_path, ...)`** — trunk + crown meshes → IFC (TreesGenericApp path)
 
 ### Parse
 
@@ -59,9 +60,9 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 ### Optional helpers (`bimfabrikhh_core_rs[psets]`)
 
 - **`PsetSpec` / `Attr` / `Const` / `Quantity`** — declarative property-set rules
-- **`hamburg_defaults()` / `attribute_mapping.specs()`** — Hamburg property names
+- **`hamburg_defaults()` / `attribute_mapping.specs()` / `tree_mapping.specs()`** — Hamburg property names
 - **`hamburg_ifc_types()` / `IfcTypeMap`** — surface type → IFC entity
-- **`OwnerIdentity`** — `IfcPerson` / `IfcOrganization` / `IfcApplication`
+- **`OwnerIdentity` / `owner.defaults()`** — FILE_NAME + `IfcPerson` / `IfcOrganization` / `IfcApplication`
 
 ## Key Features
 
@@ -111,6 +112,31 @@ cityjson_to_ifc(
 IFC has no property sets. `bbox_epsg` is `(min_x, min_y, max_x, max_y)` in the projected CRS. Reprojection is out of
 scope — use `pyproj` on the caller side if you need to transform.
 
+Trees (same look as BIMFabrik `TreesGenericApp`; Python still prepares records):
+
+```python
+from bimfabrikhh_core_rs import trees_to_ifc
+from bimfabrikhh_core_rs.tree_mapping import specs
+
+trees_to_ifc(
+    [
+        {
+            "name": "Baum_001",
+            "position": (565100.0, 5933600.0, 0.0),
+            "trunk_radius": 0.3,
+            "trunk_height": 4.0,
+            "crown_radius": 2.5,
+            "detail": 1,
+            "segments": 8,
+            "attributes": {"baumnummer": "001", "gattung_deutsch": "Eiche", "art_baum": "Quercus robur"},
+        }
+    ],
+    "trees.ifc",
+    epsg=25832,
+    psets=specs(),
+)
+```
+
 ## Property sets
 
 Pass `psets=` a list of specs describing rules rather than values. The spec is validated once and evaluated in Rust for
@@ -155,7 +181,7 @@ A missing source field omits that property. A plain dict works without pydantic.
 ```python
 from bimfabrikhh_core_rs import cityjson_to_ifc
 from bimfabrikhh_core_rs.ifc_types import IfcTypeMap
-from bimfabrikhh_core_rs.owner import OwnerIdentity
+from bimfabrikhh_core_rs.owner import defaults
 
 cityjson_to_ifc(
         "page.city.json",
@@ -163,7 +189,7 @@ cityjson_to_ifc(
         epsg=25832,
         ifc_types=IfcTypeMap(RoofSurface="IfcRoof", WallSurface="IfcWall"),
         colors={"RoofSurface": (1.0, 0.0, 0.0)},
-        owner=OwnerIdentity(organization="BIM-Leitstelle, LGV Hamburg"),
+        owner=defaults(),
 )
 ```
 
