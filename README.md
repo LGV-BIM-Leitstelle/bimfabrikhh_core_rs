@@ -4,15 +4,14 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-LGPL--2.1-blue.svg)](LICENSE)
 
-Parse CityGML 1.0 / 2.0 and CityJSON 1.1 and write IFC4 STEP from Python.
+A Rust library with Python bindings: parse CityGML 1.0 / 2.0 and CityJSON 1.1 and write IFC4 STEP.
 
 ## About This Project
 
 **bimfabrikhh_core_rs** is developed and maintained by **Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und
 Vermessung (LGV)**, **BIM-Leitstelle**
 
-This library is part of [BIMFabrikHH](https://github.com/LGV-BIM-Leitstelle/BIMFabrikHH_core). It converts urban
-building models to IFC4 STEP.
+This library is part of [BIMFabrikHH](https://github.com/LGV-BIM-Leitstelle/BIMFabrikHH_core). The core is implemented in **Rust**; **Python bindings** expose the conversion API. It converts urban building models to IFC4 STEP.
 
 This project is in an **early stage of development**. The API and features will keep evolving.
 
