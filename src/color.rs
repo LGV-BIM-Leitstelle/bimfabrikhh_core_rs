@@ -7,6 +7,10 @@ use std::collections::HashMap;
 pub const DEFAULT_RGB: [f64; 3] = [1.0, 1.0, 0.498];
 /// Roofs. Same as BIMFabrikHH `_ROOF_COLOR`.
 pub const ROOF_RGB: [f64; 3] = [1.0, 0.0, 0.0];
+/// Nullpunktobjekt pyramid. Same as BIMFabrikHH `PYRAMID_COLOR`.
+pub const BASEPOINT_RGB: [f64; 3] = [239.0 / 255.0, 109.0 / 255.0, 109.0 / 255.0];
+/// City / intern Nullpunkt edge length in metres (`_DEFAULT_BASEPOINT_SIZE`).
+pub const BASEPOINT_SIZE: f64 = 8.0;
 
 /// Caller colour input. Missing keys (and [`Colors::Defaults`]) use [`default_rgb`].
 #[derive(Clone, Debug, Default)]

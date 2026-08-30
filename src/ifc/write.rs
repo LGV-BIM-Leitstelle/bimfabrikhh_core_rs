@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use crate::color::DEFAULT_RGB;
+use crate::color::{BASEPOINT_RGB, BASEPOINT_SIZE, DEFAULT_RGB};
 use crate::types::{BuildingExport, Face, Product, Pset};
 
 use super::guid::ifc_gid;
@@ -440,7 +440,7 @@ fn write_ifc<W: Write>(
     }
 
     if let Some((x, y)) = opts.basepoint {
-        let bp = write_basepoint(w, &mut id, sub, place, &owner, x, y)?;
+        let bp = write_basepoint(w, &mut id, sub, place, &owner, x, y, opts.styles)?;
         let rel = id.next();
         writeln!(
             w,
@@ -497,15 +497,22 @@ fn write_basepoint<W: Write>(
     owner: &str,
     x: f64,
     y: f64,
+    styles: bool,
 ) -> std::io::Result<u32> {
-    let s = 4.0;
-    let pts = [
-        [x, y, 0.0],
-        [x + s, y, 0.0],
-        [x + s, y + s, 0.0],
-        [x, y + s, 0.0],
-        [x + s * 0.5, y + s * 0.5, s],
+    // BIMFabrik star: cube corners + centre (two square pyramids). No N / arrow.
+    let s = BASEPOINT_SIZE;
+    let local = [
+        [-0.5 * s, -0.5 * s, s],
+        [0.5 * s, -0.5 * s, s],
+        [0.5 * s, 0.5 * s, s],
+        [-0.5 * s, 0.5 * s, s],
+        [-0.5 * s, -0.5 * s, -s],
+        [0.5 * s, -0.5 * s, -s],
+        [0.5 * s, 0.5 * s, -s],
+        [-0.5 * s, 0.5 * s, -s],
+        [0.0, 0.0, 0.0],
     ];
+    let pts: [[f64; 3]; 9] = local.map(|[lx, ly, lz]| [x + lx, y + ly, lz]);
     let list = id.next();
     let body = pts
         .iter()
@@ -513,8 +520,20 @@ fn write_basepoint<W: Write>(
         .collect::<Vec<_>>()
         .join(",");
     writeln!(w, "#{list}=IFCCARTESIANPOINTLIST3D(({body}));")?;
+    // 1-based IFC indices. Top/bottom quads + 8 triangles to the centre.
+    let face_idx: &[&[i32]] = &[
+        &[1, 2, 3, 4],
+        &[5, 6, 7, 8],
+        &[1, 9, 2],
+        &[2, 9, 3],
+        &[3, 9, 4],
+        &[4, 9, 1],
+        &[6, 9, 5],
+        &[7, 9, 6],
+        &[8, 9, 7],
+        &[5, 9, 8],
+    ];
     let mut faces = Vec::new();
-    let face_idx: &[&[i32]] = &[&[1, 2, 3, 4], &[1, 2, 5], &[2, 3, 5], &[3, 4, 5], &[4, 1, 5]];
     for idx in face_idx {
         let fid = id.next();
         let coords = idx.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
@@ -526,6 +545,9 @@ fn write_basepoint<W: Write>(
     let pds = id.next();
     let prod = id.next();
     writeln!(w, "#{faceset}=IFCPOLYGONALFACESET(#{list},$,({}),$);", faces.join(","))?;
+    if styles {
+        write_item_style(w, id, faceset, BASEPOINT_RGB)?;
+    }
     writeln!(w, "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',(#{faceset}));")?;
     writeln!(w, "#{pds}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}));")?;
     writeln!(
