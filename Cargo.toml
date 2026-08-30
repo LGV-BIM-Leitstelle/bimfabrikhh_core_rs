@@ -9,7 +9,7 @@ name = "bimfabrikhh_core_rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module"] }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py311"] }
 quick-xml = "0.37"
 uuid = { version = "1", features = ["v5"] }
 serde = { version = "1", features = ["derive"] }

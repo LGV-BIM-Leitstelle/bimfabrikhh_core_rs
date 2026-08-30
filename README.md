@@ -1,11 +1,33 @@
 # bimfabrikhh_core_rs
 
+[![PyPI version](https://badge.fury.io/py/bimfabrikhh-core-rs.svg)](https://pypi.org/project/bimfabrikhh-core-rs/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-LGPL--2.1-blue.svg)](LICENSE)
+
 Parse **CityGML 1.0 / 2.0** and **CityJSON 1.1** and write **IFC4 STEP** text, implemented in
 Rust and callable from Python.
 
 The IFC is written as hand-rolled STEP text — no `ifcopenshell` dependency. Property sets are
 optional: pass a [declarative spec](#property-sets) from Python, or omit `psets` and none are
 written. No HTTP happens inside the package: you fetch the data, the package converts it.
+
+---
+
+## Quick install
+
+```bash
+pip install bimfabrikhh_core_rs
+```
+
+Optional pydantic helpers for property-set specs:
+
+```bash
+pip install "bimfabrikhh_core_rs[psets]"
+```
+
+Wheels are published for Linux (manylinux and musllinux, x86_64 and aarch64), Windows
+(`win_amd64`), and macOS (Intel and Apple Silicon). One wheel per platform works for
+Python 3.11+. Other hosts can still compile from the source distribution if Rust is installed.
 
 ---
 
@@ -78,7 +100,7 @@ python -c "import bimfabrikhh_core_rs; print(bimfabrikhh_core_rs.__all__)"
 Expected:
 
 ```
-['parse_gml', 'parse_cityjson', 'parse_cityjson_text', 'write_ifc', 'gml_to_ifc', 'cityjson_to_ifc', 'cityjson_to_ifc_blocks']
+['parse_gml', 'parse_cityjson', 'parse_cityjson_text', 'write_ifc', 'gml_to_ifc', 'cityjson_to_ifc']
 ```
 
 ### Alternatives
@@ -114,13 +136,13 @@ If maturin cannot find your interpreter, point it at one explicitly with
 ## Quick start
 
 ```python
-from bimfabrikhh_core_rs import cityjson_to_ifc_blocks, gml_to_ifc, parse_cityjson_text
+from bimfabrikhh_core_rs import cityjson_to_ifc, gml_to_ifc, parse_cityjson_text
 
 # CityGML tile -> typed IFC (IfcWall / IfcRoof / IfcSlab per surface)
 gml_to_ifc("tile.gml", "out.ifc", mode="typed", epsg=25833)
 
 # CityJSON -> one IfcBuildingElementProxy mesh per building
-cityjson_to_ifc_blocks(["page_00000.city.json"], "blocks.ifc", epsg=25832)
+cityjson_to_ifc(["page_00000.city.json"], "blocks.ifc", mode="mesh", epsg=25832)
 
 # Inspect before writing
 buildings = parse_cityjson_text(open("page_00000.city.json").read())
@@ -138,12 +160,11 @@ print(len(buildings), buildings[0]["gml_name"])
 | `parse_cityjson_text(text, ...)`                | CityJSON already in memory (post-HTTP)                    |
 | `gml_to_ifc(gml_path, ifc_path, ...)`           | CityGML (one file or a list) to one IFC                   |
 | `cityjson_to_ifc(source, ifc_path, ...)`        | CityJSON path, list of paths, or document text to one IFC |
-| `cityjson_to_ifc_blocks(source, ifc_path, ...)` | Same, always mesh: one proxy per building                 |
 | `write_ifc(products, path, ...)`                | IFC from product dicts you built yourself                 |
 
 `mode` is `"typed"` or `"mesh"`. Typed gives one IFC product per semantic surface; mesh gives one
 product per building. Product types come from `ifc_types=` — omit it and everything is
-`IfcBuildingElementProxy`. `cityjson_to_ifc_blocks` is the mesh shortcut and takes no `mode`.
+`IfcBuildingElementProxy`.
 
 `bbox_epsg` crops to `(min_x, min_y, max_x, max_y)` in the projected CRS. `basepoint` sets the
 IFC base point. The `epsg` default is **25833** on the CityGML entry points and **25832** on the
@@ -286,6 +307,7 @@ Each script in `examples/` is runnable on its own.
 |---------------------------------------------|--------------------------------------------------------------------------|
 | `example_one_building_entities.py`          | one CityGML building, typed                                              |
 | `example_one_building_block.py`             | one CityGML building, mesh                                               |
+| `example_one_building_block_layer.py`       | same building, mesh + typed, both with `_BIM_Stadtmodell` layer          |
 | `example_kachel_entities.py` / `_blocks.py` | one `fixtures/` tile (`loop=True` for every `*.gml`)                     |
 | `example_generic_city_model.py`             | Hamburg LoD1 tiles, mesh city model                                      |
 | `example_hamburg_lod2_cityjson.py`          | Hamburg LoD2 via the CityJSON API, typed                                 |
@@ -341,3 +363,11 @@ Because `api.rs` carries no pyo3 types, the conversion can be driven and tested 
 cargo test
 cargo clippy --all-targets
 ```
+
+---
+
+## Links
+
+- **PyPI**: https://pypi.org/project/bimfabrikhh-core-rs/
+- **GitHub**: https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs
+- **Issues**: https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs/issues

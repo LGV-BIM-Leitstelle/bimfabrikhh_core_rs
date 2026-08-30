@@ -7,9 +7,32 @@ name = "bimfabrikhh_core_rs"
 version = "0.1.0"
 description = "Parse CityGML and write IFC4 STEP text from Rust, callable from Python"
 readme = "README.md"
+license = {text = "LGPL-2.1"}
 requires-python = ">=3.11"
-authors = [{ name = "Ahmed Salem" }]
+authors = [
+    {name = "Ahmed Salem", email = "ahmed.salem@gv.hamburg.de"}
+]
+keywords = ["BIM", "IFC", "CityGML", "CityJSON", "construction"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: GIS",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs"
+Repository = "https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs"
+Issues = "https://github.com/LGV-BIM-Leitstelle/bimfabrikhh_core_rs/issues"
 
 # Only bimfabrikhh_core_rs.psets needs pydantic; the conversion API stays dependency-free.
 [project.optional-dependencies]
