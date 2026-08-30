@@ -12,7 +12,7 @@ megabytes each and are ignored by `.gitignore`. Drop them in this directory your
 | `example_one_building_block_layer.py`    | `lod2_33410_5652_2_sn.gml`               |
 | `example_kachel_entities.py`             | any `*.gml` in this directory            |
 | `example_kachel_blocks.py`               | any `*.gml` in this directory            |
-| `example_hamburg_lod3.py` / `_blocks.py` / `_bbox*.py` | none here — path is in `hamburg_lod3.py` |
+| `example_hamburg_lod3.py` / `_blocks.py` / `_bbox*.py` | none here — set `BIMFABRIKHH_LOD3_GML_DIR` in `.env` |
 
 `lod2_33410_5652_2_sn.gml` is a Sachsen LoD2 tile (EPSG:25833), which is why the CityGML entry
 points default to `epsg=25833`. Sachsen publishes LoD2 tiles as open data through the

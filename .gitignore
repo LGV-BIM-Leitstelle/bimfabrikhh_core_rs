@@ -1,5 +1,7 @@
 /target
 /output/
+.env
+.env.local
 __pycache__/
 *.so
 *.pyc

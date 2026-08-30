@@ -1,14 +1,11 @@
-"""Hamburg LoD3 CityGRID tiles. Path only — conversion stays in the examples."""
+"""Hamburg LoD3 CityGRID tiles. Folder comes from ``.env``, not this file."""
 
-from pathlib import Path
-
+from envpaths import lod3_dir
 from hamburg_lod2 import BBOX_EPSG, BBOX_WGS84
 
-LOD3 = Path(
-    "/mnt/c/_Lokale_Daten_ungesichert/___BIMFabrikHH_Datensaetze/LoD3-HH_Area1_2023_12_14/LoD3-GML"
-)
-# Set True to convert every *.gml in LOD3.
-LOOP = True
+LOD3 = lod3_dir()
+# Full Stadtmodell_LoD3 is large — set True to convert every *.gml.
+LOOP = False
 TILE = "6627.gml"
 
 # Same crop as the LoD2 CityJSON examples.

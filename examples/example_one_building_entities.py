@@ -6,16 +6,15 @@ Each surface is its own product. Default building: TU Dresden, Georg-Schumann-Ba
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from bimfabrikhh_core_rs import gml_to_ifc, parse_gml
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 from bimfabrikhh_core_rs.attribute_mapping import specs
 
+from envpaths import FIXTURES, ROOT
 from logconfig import ENABLED, ifc_created, log
 
-ROOT = Path(__file__).resolve().parents[1]
-GML = ROOT / "fixtures" / "lod2_33410_5652_2_sn.gml"
+GML = FIXTURES / "lod2_33410_5652_2_sn.gml"
 OUTPUT = ROOT / "output"
 BUILDING_ID = "DESNATPU1000C1qE"
 MODE = "typed"
