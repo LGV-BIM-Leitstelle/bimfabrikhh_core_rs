@@ -240,7 +240,7 @@ def bimfabrik_quantities() -> PsetSpec:
     )
 
 
-def hamburg_defaults(*, hyperlink: bool = True, quantities: bool = True) -> List[PsetSpec]:
+def hamburg_defaults(*, hyperlink: bool = True, quantities: bool = False) -> List[PsetSpec]:
     """Hamburg property sets as specs you pass explicitly. Rust has no fallback."""
     specs = [hamburg_objektinformation()]
     if hyperlink:

@@ -28,15 +28,7 @@ def objektinformation(
             "_RelativeHoehe": Attr("measured_height"),
             "_AnzahlObergeschoss": Attr("storeys_above_ground"),
             "_Dachform": Attr("roof_type", catalog="dachform"),
-            # Hamburg LoD2 AdV generics
-            "_Gemeindeschluessel": Attr("extra:Gemeindeschluessel"),
-            "_gemeindeschluessel": Attr("extra:gemeindeschluessel"),
-            "_DatenquelleDachhoehe": Attr("extra:DatenquelleDachhoehe"),
-            "_DatenquelleLage": Attr("extra:DatenquelleLage"),
-            "_DatenquelleBodenhoehe": Attr("extra:DatenquelleBodenhoehe"),
-            "_DatenquelleGeschossanzahl": Attr("extra:DatenquelleGeschossanzahl"),
             "_Grundrissaktualitaet": Attr("extra:Grundrissaktualitaet"),
-            "_Geometrietyp2DReferenz": Attr("extra:Geometrietyp2DReferenz"),
             # Hamburg LoD3 CityGRID generics
             "_CitygridUnitID": Attr("extra:citygrid_UnitID"),
             "_Grundflaeche2D": Attr("extra:Grundfläche 2D"),
@@ -45,7 +37,7 @@ def objektinformation(
     )
 
 
-def specs(*, hyperlink: bool = True, quantities: bool = True) -> List[PsetSpec]:
+def specs(*, hyperlink: bool = True, quantities: bool = False) -> List[PsetSpec]:
     out = [objektinformation()]
     if hyperlink:
         out.append(hamburg_hyperlink())
