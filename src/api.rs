@@ -15,6 +15,7 @@ use crate::geom::{buildings_to_export, ExportConfig};
 use crate::ifc::{write_ifc_file, OwnerIdentity, WriteOptions};
 use crate::parse::{parse_gml_file, BboxUtm};
 use crate::psetspec::{self, PsetSpec, Scope};
+use crate::terrain::{elevation_ok, terrain_attr_map, terrain_to_product, TerrainInput};
 use crate::tree::{tree_attr_map, trees_to_products, TreeInput};
 use crate::types::{upsert_pset, BuildingExport, ParsedBuilding, Product};
 
@@ -66,6 +67,7 @@ impl ExportOptions {
             owner: self.owner.clone(),
             basepoint: self.basepoint,
             city_model: is_mesh(&self.mode),
+            contain_in_site: false,
             progress: self.progress,
         }
     }
@@ -184,6 +186,38 @@ pub fn trees_to_ifc(trees: &[TreeInput], ifc_path: &str, opts: &ExportOptions) -
     let mut write = opts.write_options();
     write.city_model = true;
     write_ifc_file(&group_products(products), ifc_path, &write)?;
+    Ok(ifc_path.to_string())
+}
+
+/// TerrainGenericApp write path: Python still meshes; Rust writes STEP.
+pub fn terrain_to_ifc(mesh: &TerrainInput, ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
+    let mut mesh = mesh.clone();
+    if mesh.placement.is_none() {
+        mesh.placement = Some(match opts.basepoint {
+            Some((x, y)) => [x, y, 0.0],
+            None => {
+                let (min_x, min_y) = mesh.vertices.iter().fold(
+                    (f64::INFINITY, f64::INFINITY),
+                    |(ax, ay), v| (ax.min(v[0]), ay.min(v[1])),
+                );
+                [min_x, min_y, 0.0]
+            }
+        });
+    }
+    let n_bad = mesh.vertices.iter().filter(|v| !elevation_ok(v[2])).count();
+    let mut product = terrain_to_product(&mesh)?;
+    if opts.progress && n_bad > 0 {
+        eprintln!("  terrain: filled {n_bad} nodata z from nearest valid");
+    }
+    if !opts.psets.is_empty() {
+        for pset in psetspec::eval_map(&opts.psets, Scope::Building, &terrain_attr_map(&mesh)) {
+            upsert_pset(&mut product.psets, pset);
+        }
+    }
+    let mut write = opts.write_options();
+    write.city_model = false;
+    write.contain_in_site = true;
+    write_ifc_file(&group_products(vec![product]), ifc_path, &write)?;
     Ok(ifc_path.to_string())
 }
 

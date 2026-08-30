@@ -7,9 +7,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
 
 use crate::api::CityJsonSource;
-use crate::color::{Colors, CROWN_RGB, TRUNK_RGB};
+use crate::color::{Colors, CROWN_RGB, TERRAIN_RGB, TRUNK_RGB};
 use crate::ifc::OwnerIdentity;
 use crate::psetspec::{AttrKey, Catalog, PsetSpec, QtyKey, Scope, Value};
+use crate::terrain::{TerrainInput, TERRAIN_LAYER};
 use crate::tree::TreeInput;
 use crate::types::{upsert_pset, Face, ParsedBuilding, Product, Pset};
 
@@ -292,6 +293,60 @@ fn rgb_style_from_py(v: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
     } else {
         Ok([nums[0], nums[1], nums[2]])
     }
+}
+
+pub fn terrain_from_py(
+    vertices: &Bound<'_, PyAny>,
+    faces: &Bound<'_, PyAny>,
+    name: &str,
+    color: Option<&Bound<'_, PyAny>>,
+    layer: Option<&str>,
+    attributes: Option<&Bound<'_, PyAny>>,
+) -> PyResult<TerrainInput> {
+    let vertices_raw: Vec<Vec<f64>> = vertices
+        .extract()
+        .map_err(|_| PyValueError::new_err("vertices must be a list of [x, y, z]"))?;
+    let verts: Vec<[f64; 3]> = vertices_raw
+        .into_iter()
+        .map(|p| {
+            if p.len() < 3 {
+                [0.0, 0.0, 0.0]
+            } else {
+                [p[0], p[1], p[2]]
+            }
+        })
+        .collect();
+    let mut mesh_faces = Vec::new();
+    if let Ok(simple) = faces.extract::<Vec<Vec<u32>>>() {
+        mesh_faces.extend(simple.into_iter().map(Face::Simple));
+    } else if let Ok(list) = faces.downcast::<PyList>() {
+        for face in list.iter() {
+            if let Ok(idx) = face.extract::<Vec<u32>>() {
+                mesh_faces.push(Face::Simple(idx));
+            } else {
+                return Err(PyValueError::new_err("faces must be lists of vertex indices"));
+            }
+        }
+    } else {
+        return Err(PyValueError::new_err("faces must be a list of index lists"));
+    }
+    let rgb = match color {
+        Some(v) if !v.is_none() => rgb_style_from_py(v)?,
+        _ => TERRAIN_RGB,
+    };
+    let attributes = match attributes {
+        Some(v) if !v.is_none() => attrs_from_py(v)?,
+        _ => HashMap::new(),
+    };
+    Ok(TerrainInput {
+        name: if name.is_empty() { "DGM".into() } else { name.into() },
+        vertices: verts,
+        faces: mesh_faces,
+        color: rgb,
+        layer: Some(layer.unwrap_or(TERRAIN_LAYER).into()),
+        attributes,
+        placement: None,
+    })
 }
 
 pub fn products_from_py(products: &Bound<'_, PyList>) -> PyResult<Vec<Product>> {

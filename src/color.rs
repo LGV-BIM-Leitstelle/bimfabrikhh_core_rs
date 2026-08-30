@@ -15,6 +15,8 @@ pub const BASEPOINT_SIZE: f64 = 8.0;
 pub const TRUNK_RGB: [f64; 3] = [112.0 / 255.0, 69.0 / 255.0, 46.0 / 255.0];
 /// Tree crown. Same as TreesGenericApp `DEFAULT_CROWN_COLOR` (33, 128, 46).
 pub const CROWN_RGB: [f64; 3] = [33.0 / 255.0, 128.0 / 255.0, 46.0 / 255.0];
+/// DGM. Same as TerrainGenericApp `_DEFAULT_TERRAIN_RGB` (102, 204, 0).
+pub const TERRAIN_RGB: [f64; 3] = [102.0 / 255.0, 204.0 / 255.0, 0.0];
 
 /// Caller colour input. Missing keys (and [`Colors::Defaults`]) use [`default_rgb`].
 #[derive(Clone, Debug, Default)]

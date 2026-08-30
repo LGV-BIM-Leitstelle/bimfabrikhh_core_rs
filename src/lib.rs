@@ -12,6 +12,7 @@
 //! - [`geom`] — area / perimeter / tilt and typed vs mesh conversion
 //! - [`ifc`] — GUID, STEP text, IFC4 writer
 //! - [`tree`] — n-gon trunk + icosphere crown (TreesGenericApp)
+//! - [`terrain`] — one triangulated DGM mesh (TerrainGenericApp write path)
 //! - [`types`] — shared parse / export structs
 
 mod api;
@@ -23,6 +24,7 @@ mod katalog;
 mod parse;
 mod psetspec;
 mod bindings;
+mod terrain;
 mod tree;
 mod types;
 

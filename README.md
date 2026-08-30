@@ -50,6 +50,7 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 - **`cityjson_to_ifc(source, ifc_path, ...)`** — CityJSON path, list of paths, or document text → IFC
 - **`write_ifc(products, path, ...)`** — IFC from product dicts you built yourself
 - **`trees_to_ifc(trees, ifc_path, ...)`** — trunk + crown meshes → IFC (TreesGenericApp path)
+- **`terrain_to_ifc(vertices, faces, ifc_path, ...)`** — triangulated DGM → IFC (TerrainGenericApp write path)
 
 ### Parse
 
@@ -60,7 +61,7 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 ### Optional helpers (`bimfabrikhh_core_rs[psets]`)
 
 - **`PsetSpec` / `Attr` / `Const` / `Quantity`** — declarative property-set rules
-- **`hamburg_defaults()` / `attribute_mapping.specs()` / `tree_mapping.specs()`** — Hamburg property names
+- **`hamburg_defaults()` / `attribute_mapping.specs()` / `tree_mapping.specs()` / `terrain_mapping.specs()`** — Hamburg property names
 - **`hamburg_ifc_types()` / `IfcTypeMap`** — surface type → IFC entity
 - **`OwnerIdentity` / `owner.defaults()`** — FILE_NAME + `IfcPerson` / `IfcOrganization` / `IfcApplication`
 
@@ -136,6 +137,15 @@ trees_to_ifc(
     psets=specs(),
     basepoint=(565100.0, 5933600.0),
 )
+```
+
+Terrain (Python still samples / Delaunay; Rust only writes IFC):
+
+```python
+from bimfabrikhh_core_rs import terrain_to_ifc
+from bimfabrikhh_core_rs.terrain_mapping import specs
+
+terrain_to_ifc(vertices, faces, "dgm.ifc", epsg=25832, psets=specs(), basepoint=(565000.0, 5933000.0))
 ```
 
 ## Property sets

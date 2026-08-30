@@ -11,6 +11,7 @@ _LOADED = False
 _LOD1 = "BIMFABRIKHH_LOD1_GML_DIR"
 _LOD2 = "BIMFABRIKHH_LOD2_GML_DIR"
 _LOD3 = "BIMFABRIKHH_LOD3_GML_DIR"
+_DGM = "BIMFABRIKHH_DGM_TIF_DIR"
 FIXTURES = ROOT / "fixtures"
 
 
@@ -60,3 +61,7 @@ def lod2_dir() -> Path:
 
 def lod3_dir() -> Path:
     return _require_dir(_LOD3)
+
+
+def dgm_dir() -> Path:
+    return _require_dir(_DGM)

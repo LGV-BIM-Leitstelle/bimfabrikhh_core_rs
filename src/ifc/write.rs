@@ -56,6 +56,8 @@ pub struct WriteOptions {
     pub basepoint: Option<(f64, f64)>,
     /// One spatial IfcBuilding; CityGML buildings are products (Python city model).
     pub city_model: bool,
+    /// Hang products on `IfcSite` (no `IfcBuilding`). DGM / BIMFabrik terrain.
+    pub contain_in_site: bool,
     pub progress: bool,
 }
 
@@ -71,6 +73,7 @@ impl Default for WriteOptions {
             owner: OwnerIdentity::default(),
             basepoint: None,
             city_model: false,
+            contain_in_site: false,
             progress: false,
         }
     }
@@ -473,7 +476,9 @@ fn write_ifc<W: Write>(
     let mut city_product_refs: Vec<String> = Vec::new();
     let mut layer_items: BTreeMap<String, (Vec<String>, [f64; 3])> = BTreeMap::new();
 
-    let city_bid = if opts.city_model {
+    let city_bid = if opts.contain_in_site {
+        None
+    } else if opts.city_model {
         let bid = id.next();
         building_ids.push(bid);
         writeln!(
@@ -488,8 +493,10 @@ fn write_ifc<W: Write>(
     };
 
     for bldg in buildings {
-        let bid = if let Some(shared) = city_bid {
-            shared
+        let bid = if opts.contain_in_site {
+            None
+        } else if let Some(shared) = city_bid {
+            Some(shared)
         } else {
             let bid = id.next();
             building_ids.push(bid);
@@ -500,7 +507,7 @@ fn write_ifc<W: Write>(
                 name = step_str(&bldg.display_name),
             )?;
             write_psets(w, &mut id, &owner, bid, &bldg.psets, &bldg.id)?;
-            bid
+            Some(bid)
         };
 
         let mut product_refs = Vec::new();
@@ -522,9 +529,10 @@ fn write_ifc<W: Write>(
                 eprint!("\r  write_ifc: {written:>5}/{total_products} products");
             }
         }
-        if opts.city_model {
+        if opts.contain_in_site || opts.city_model {
             city_product_refs.extend(product_refs);
         } else if !product_refs.is_empty() {
+            let bid = bid.expect("building id when not contain_in_site");
             let rel = id.next();
             writeln!(
                 w,
@@ -535,7 +543,17 @@ fn write_ifc<W: Write>(
         }
     }
 
-    if let Some(bid) = city_bid {
+    if opts.contain_in_site {
+        if !city_product_refs.is_empty() {
+            let rel = id.next();
+            writeln!(
+                w,
+                "#{rel}=IFCRELCONTAINEDINSPATIALSTRUCTURE({gid},{owner}$,$,({items}),#{site_id});",
+                gid = step_str(&ifc_gid("rel-contain-site")),
+                items = city_product_refs.join(","),
+            )?;
+        }
+    } else if let Some(bid) = city_bid {
         if !city_product_refs.is_empty() {
             let rel = id.next();
             writeln!(
