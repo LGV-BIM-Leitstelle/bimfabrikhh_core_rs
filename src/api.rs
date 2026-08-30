@@ -28,6 +28,8 @@ pub struct ExportOptions {
     pub site_name: String,
     pub epsg: i32,
     pub styles: bool,
+    /// Off by default. When true, products are assigned to `_BIM_Stadtmodell`.
+    pub cad_layer: bool,
     pub owner_history: bool,
     pub owner: OwnerIdentity,
     pub basepoint: Option<(f64, f64)>,
@@ -58,6 +60,7 @@ impl ExportOptions {
             site_name: self.site_name.clone(),
             epsg: self.epsg,
             styles: self.styles,
+            cad_layer: self.cad_layer,
             owner_history: self.owner_history,
             owner: self.owner.clone(),
             basepoint: self.basepoint,

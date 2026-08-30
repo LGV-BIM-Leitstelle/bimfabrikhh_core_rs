@@ -39,6 +39,7 @@ fn export_options(
     site_name: &str,
     epsg: i32,
     styles: bool,
+    cad_layer: bool,
     owner_history: bool,
     basepoint: Option<Bound<'_, PyTuple>>,
     psets: Option<&Bound<'_, PyAny>>,
@@ -53,6 +54,7 @@ fn export_options(
         site_name: site_name.into(),
         epsg,
         styles,
+        cad_layer,
         owner_history,
         owner: owner_from_py(owner)?,
         basepoint: basepoint_xy(basepoint)?,
@@ -91,7 +93,7 @@ fn parse_cityjson_text(text: &str, building_id_filter: Option<&str>, bbox_epsg: 
 
 /// Write IFC4 STEP from a list of product dicts.
 #[pyfunction]
-#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, basepoint=None, owner=None, progress=false))]
+#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, cad_layer=false, owner_history=true, basepoint=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn write_ifc(
     products: Bound<'_, PyList>,
@@ -100,6 +102,7 @@ fn write_ifc(
     site_name: &str,
     epsg: i32,
     styles: bool,
+    cad_layer: bool,
     owner_history: bool,
     basepoint: Option<Bound<'_, PyTuple>>,
     owner: Option<Bound<'_, PyAny>>,
@@ -112,6 +115,7 @@ fn write_ifc(
         site_name,
         epsg,
         styles,
+        cad_layer,
         owner_history,
         basepoint,
         None,
@@ -134,7 +138,7 @@ fn write_ifc(
 /// (`bimfabrikhh_core_rs.owner.OwnerIdentity` or a dict). Omit it and the Rust default
 /// is used. `owner_history=false` writes no owner-history block.
 #[pyfunction]
-#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
+#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25833, styles=true, cad_layer=false, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn gml_to_ifc(
     gml_path: Bound<'_, PyAny>,
@@ -145,6 +149,7 @@ fn gml_to_ifc(
     site_name: &str,
     epsg: i32,
     styles: bool,
+    cad_layer: bool,
     owner_history: bool,
     bbox_epsg: Bbox,
     basepoint: Option<Bound<'_, PyTuple>>,
@@ -161,6 +166,7 @@ fn gml_to_ifc(
         site_name,
         epsg,
         styles,
+        cad_layer,
         owner_history,
         basepoint,
         psets.as_ref(),
@@ -180,7 +186,7 @@ fn gml_to_ifc(
 /// `ifc_types` maps surface types to IFC entities. Omit it and every product is
 /// `IfcBuildingElementProxy`.
 #[pyfunction]
-#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
+#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, cad_layer=false, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
 #[allow(clippy::too_many_arguments)]
 fn cityjson_to_ifc(
     source: Bound<'_, PyAny>,
@@ -191,6 +197,7 @@ fn cityjson_to_ifc(
     site_name: &str,
     epsg: i32,
     styles: bool,
+    cad_layer: bool,
     owner_history: bool,
     bbox_epsg: Bbox,
     basepoint: Option<Bound<'_, PyTuple>>,
@@ -207,6 +214,7 @@ fn cityjson_to_ifc(
         site_name,
         epsg,
         styles,
+        cad_layer,
         owner_history,
         basepoint,
         psets.as_ref(),

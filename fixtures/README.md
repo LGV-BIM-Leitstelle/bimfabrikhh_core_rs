@@ -9,6 +9,7 @@ megabytes each and are ignored by `.gitignore`. Drop them in this directory your
 |------------------------------------------|------------------------------------------|
 | `example_one_building_entities.py`       | `lod2_33410_5652_2_sn.gml`               |
 | `example_one_building_block.py`          | `lod2_33410_5652_2_sn.gml`               |
+| `example_one_building_block_layer.py`    | `lod2_33410_5652_2_sn.gml`               |
 | `example_kachel_entities.py`             | any `*.gml` in this directory            |
 | `example_kachel_blocks.py`               | any `*.gml` in this directory            |
 | `example_hamburg_lod3.py` / `_blocks.py` / `_bbox*.py` | none here — path is in `hamburg_lod3.py` |

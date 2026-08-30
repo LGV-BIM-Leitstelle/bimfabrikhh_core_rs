@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
+use crate::color::DEFAULT_RGB;
 use crate::types::{BuildingExport, Face, Product, Pset};
 
 use super::guid::ifc_gid;
@@ -37,6 +38,8 @@ pub struct WriteOptions {
     pub site_name: String,
     pub epsg: i32,
     pub styles: bool,
+    /// One `IfcPresentationLayerWithStyle` named `_BIM_Stadtmodell` on every product mesh.
+    pub cad_layer: bool,
     pub owner_history: bool,
     pub owner: OwnerIdentity,
     pub basepoint: Option<(f64, f64)>,
@@ -52,6 +55,7 @@ impl Default for WriteOptions {
             site_name: "Site".into(),
             epsg: 25833,
             styles: true,
+            cad_layer: false,
             owner_history: true,
             owner: OwnerIdentity::default(),
             basepoint: None,
@@ -133,6 +137,35 @@ fn write_psets<W: Write>(
     Ok(())
 }
 
+/// Same chain BIMFabrik uses for BricsCAD: Rendering + PresentationStyleAssignment.
+fn write_item_style<W: Write>(
+    w: &mut W,
+    id: &mut Ids,
+    faceset: u32,
+    rgb: [f64; 3],
+) -> std::io::Result<()> {
+    let col = id.next();
+    let rendering = id.next();
+    let style = id.next();
+    let assign = id.next();
+    let item = id.next();
+    writeln!(
+        w,
+        "#{col}=IFCCOLOURRGB($,{r},{g},{b});",
+        r = format_real(rgb[0]),
+        g = format_real(rgb[1]),
+        b = format_real(rgb[2]),
+    )?;
+    writeln!(
+        w,
+        "#{rendering}=IFCSURFACESTYLERENDERING(#{col},0.,$,$,$,$,$,$,.NOTDEFINED.);"
+    )?;
+    writeln!(w, "#{style}=IFCSURFACESTYLE('Style',.BOTH.,(#{rendering}));")?;
+    writeln!(w, "#{assign}=IFCPRESENTATIONSTYLEASSIGNMENT((#{style}));")?;
+    writeln!(w, "#{item}=IFCSTYLEDITEM(#{faceset},(#{assign}),$);")?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write_product_geom<W: Write>(
     w: &mut W,
@@ -143,7 +176,7 @@ fn write_product_geom<W: Write>(
     product: &Product,
     pi: usize,
     styles: bool,
-) -> std::io::Result<u32> {
+) -> std::io::Result<(u32, u32)> {
     let list = id.next();
     let pts = product
         .vertices
@@ -191,20 +224,7 @@ fn write_product_geom<W: Write>(
 
     if styles {
         if let Some(rgb) = product.color {
-            let col = id.next();
-            let shade = id.next();
-            let style = id.next();
-            let item = id.next();
-            writeln!(
-                w,
-                "#{col}=IFCCOLOURRGB($,{r},{g},{b});",
-                r = format_real(rgb[0]),
-                g = format_real(rgb[1]),
-                b = format_real(rgb[2])
-            )?;
-            writeln!(w, "#{shade}=IFCSURFACESTYLESHADING(#{col},0.);")?;
-            writeln!(w, "#{style}=IFCSURFACESTYLE('Style',.BOTH.,(#{shade}));")?;
-            writeln!(w, "#{item}=IFCSTYLEDITEM(#{faceset},(#{style}),$);")?;
+            write_item_style(w, id, faceset, rgb)?;
         }
     }
 
@@ -223,7 +243,7 @@ fn write_product_geom<W: Write>(
         gid = step_str(&ifc_gid(&format!("{}-{pi}", product.name))),
         name = step_str(&product.name),
     )?;
-    Ok(prod)
+    Ok((prod, faceset))
 }
 
 fn write_ifc<W: Write>(
@@ -349,6 +369,7 @@ fn write_ifc<W: Write>(
     let mut written = 0usize;
     let mut building_ids = Vec::new();
     let mut city_product_refs: Vec<String> = Vec::new();
+    let mut layer_items: Vec<String> = Vec::new();
 
     let city_bid = if opts.city_model {
         let bid = id.next();
@@ -382,9 +403,12 @@ fn write_ifc<W: Write>(
 
         let mut product_refs = Vec::new();
         for (pi, product) in bldg.products.iter().enumerate() {
-            let prod = write_product_geom(w, &mut id, sub, place, &owner, product, pi, opts.styles)?;
+            let (prod, faceset) = write_product_geom(w, &mut id, sub, place, &owner, product, pi, opts.styles)?;
             write_psets(w, &mut id, &owner, prod, &product.psets, &product.name)?;
             product_refs.push(format!("#{prod}"));
+            if opts.cad_layer {
+                layer_items.push(format!("#{faceset}"));
+            }
             written += 1;
             if opts.progress && (written.is_multiple_of(50) || written == total_products) {
                 eprint!("\r  write_ifc: {written:>5}/{total_products} products");
@@ -422,6 +446,28 @@ fn write_ifc<W: Write>(
             w,
             "#{rel}=IFCRELCONTAINEDINSPATIALSTRUCTURE({gid},{owner}$,$,(#{bp}),#{site_id});",
             gid = step_str(&ifc_gid("rel-basepoint")),
+        )?;
+    }
+
+    if opts.cad_layer && !layer_items.is_empty() {
+        let col = id.next();
+        let shade = id.next();
+        let style = id.next();
+        let layer = id.next();
+        let [r, g, b] = DEFAULT_RGB;
+        writeln!(
+            w,
+            "#{col}=IFCCOLOURRGB('LayerColor',{r},{g},{b});",
+            r = format_real(r),
+            g = format_real(g),
+            b = format_real(b),
+        )?;
+        writeln!(w, "#{shade}=IFCSURFACESTYLESHADING(#{col},0.);")?;
+        writeln!(w, "#{style}=IFCSURFACESTYLE('LayerStyle',.POSITIVE.,(#{shade}));")?;
+        writeln!(
+            w,
+            "#{layer}=IFCPRESENTATIONLAYERWITHSTYLE('_BIM_Stadtmodell',$,({items}),$,.T.,.F.,.F.,(#{style}));",
+            items = layer_items.join(","),
         )?;
     }
 
