@@ -1,6 +1,5 @@
 from bimfabrikhh_core_rs.bimfabrikhh_core_rs import (
     cityjson_to_ifc,
-    cityjson_to_ifc_blocks,
     gml_to_ifc,
     parse_cityjson,
     parse_cityjson_text,
@@ -15,5 +14,4 @@ __all__ = [
     "write_ifc",
     "gml_to_ifc",
     "cityjson_to_ifc",
-    "cityjson_to_ifc_blocks",
 ]

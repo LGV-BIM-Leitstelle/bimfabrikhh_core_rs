@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from bimfabrikhh_core_rs import cityjson_to_ifc_blocks, parse_cityjson_text
+from bimfabrikhh_core_rs import cityjson_to_ifc, parse_cityjson_text
 from bimfabrikhh_core_rs.attribute_mapping import specs
 
 from hamburg_lod2 import BBOX_EPSG, BBOX_WGS84, fetch_cityjson_pages
@@ -39,9 +39,10 @@ def main() -> None:
         log.debug(f"  {b['id']}  name={b.get('gml_name')!r}  surfaces={len(b['boundaries'])}")
 
     t2 = time.perf_counter()
-    written = cityjson_to_ifc_blocks(
+    written = cityjson_to_ifc(
         pages,
         str(ifc_path),
+        mode="mesh",
         project_name="Hamburg_LoD2_CityJSON",
         site_name="Hamburg_Site",
         epsg=25832,
@@ -51,7 +52,7 @@ def main() -> None:
         progress=ENABLED,
     )
     elapsed = time.perf_counter() - t2
-    log.debug(f"cityjson_to_ifc_blocks: {elapsed:.2f}s")
+    log.debug(f"cityjson_to_ifc: {elapsed:.2f}s")
     ifc_created(written, elapsed)
 
 

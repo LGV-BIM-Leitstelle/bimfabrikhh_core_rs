@@ -24,7 +24,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_cityjson, m)?)?;
     m.add_function(wrap_pyfunction!(parse_cityjson_text, m)?)?;
     m.add_function(wrap_pyfunction!(cityjson_to_ifc, m)?)?;
-    m.add_function(wrap_pyfunction!(cityjson_to_ifc_blocks, m)?)?;
     Ok(())
 }
 
@@ -62,45 +61,6 @@ fn export_options(
         colors: colors_from_py(colors)?,
         progress,
     })
-}
-
-/// Shared body of `cityjson_to_ifc` and `cityjson_to_ifc_blocks`.
-#[allow(clippy::too_many_arguments)]
-fn cityjson_export(
-    source: &Bound<'_, PyAny>,
-    ifc_path: &str,
-    building_id_filter: Option<&str>,
-    mode: &str,
-    project_name: &str,
-    site_name: &str,
-    epsg: i32,
-    styles: bool,
-    owner_history: bool,
-    bbox_epsg: Bbox,
-    basepoint: Option<Bound<'_, PyTuple>>,
-    psets: Option<&Bound<'_, PyAny>>,
-    ifc_types: Option<&Bound<'_, PyAny>>,
-    colors: Option<&Bound<'_, PyAny>>,
-    owner: Option<&Bound<'_, PyAny>>,
-    progress: bool,
-) -> PyResult<String> {
-    let src = cityjson_source_from_py(source)?;
-    let opts = export_options(
-        mode,
-        project_name,
-        site_name,
-        epsg,
-        styles,
-        owner_history,
-        basepoint,
-        psets,
-        ifc_types,
-        colors,
-        owner,
-        progress,
-    )?;
-    api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, &opts)
-        .map_err(PyValueError::new_err)
 }
 
 /// Parse CityGML into building dicts.
@@ -240,69 +200,21 @@ fn cityjson_to_ifc(
     owner: Option<Bound<'_, PyAny>>,
     progress: bool,
 ) -> PyResult<String> {
-    cityjson_export(
-        &source,
-        ifc_path,
-        building_id_filter,
+    let src = cityjson_source_from_py(&source)?;
+    let opts = export_options(
         mode,
         project_name,
         site_name,
         epsg,
         styles,
         owner_history,
-        bbox_epsg,
         basepoint,
         psets.as_ref(),
         ifc_types.as_ref(),
         colors.as_ref(),
         owner.as_ref(),
         progress,
-    )
-}
-
-/// One `IfcBuildingElementProxy` mesh per CityJSON building (city-model blocks).
-///
-/// With `psets`, both scopes land on that product, since one `IfcBuilding` is
-/// shared by the whole city model; surface-scope specs then see the
-/// building-wide area and perimeter aggregates. Omit `psets` and no property
-/// sets are written. `ifc_types` may set the `"Building"` key; omit it and the
-/// product is `IfcBuildingElementProxy`.
-#[pyfunction]
-#[pyo3(signature = (source, ifc_path, building_id_filter=None, project_name="bimfabrikhh_core_rs", site_name="Site", epsg=25832, styles=true, owner_history=true, bbox_epsg=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
-#[allow(clippy::too_many_arguments)]
-fn cityjson_to_ifc_blocks(
-    source: Bound<'_, PyAny>,
-    ifc_path: &str,
-    building_id_filter: Option<&str>,
-    project_name: &str,
-    site_name: &str,
-    epsg: i32,
-    styles: bool,
-    owner_history: bool,
-    bbox_epsg: Bbox,
-    basepoint: Option<Bound<'_, PyTuple>>,
-    psets: Option<Bound<'_, PyAny>>,
-    ifc_types: Option<Bound<'_, PyAny>>,
-    colors: Option<Bound<'_, PyAny>>,
-    owner: Option<Bound<'_, PyAny>>,
-    progress: bool,
-) -> PyResult<String> {
-    cityjson_export(
-        &source,
-        ifc_path,
-        building_id_filter,
-        "mesh",
-        project_name,
-        site_name,
-        epsg,
-        styles,
-        owner_history,
-        bbox_epsg,
-        basepoint,
-        psets.as_ref(),
-        ifc_types.as_ref(),
-        colors.as_ref(),
-        owner.as_ref(),
-        progress,
-    )
+    )?;
+    api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, &opts)
+        .map_err(PyValueError::new_err)
 }
