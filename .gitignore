@@ -11,3 +11,4 @@ __pycache__/
 
 # CityGML tiles are tens of MB; see fixtures/README.md
 /fixtures/*.gml
+/_local/

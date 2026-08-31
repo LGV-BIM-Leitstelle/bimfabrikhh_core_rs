@@ -13,9 +13,12 @@ from bimfabrikhh_core_rs.attribute_mapping import specs
 from logconfig import ENABLED, ifc_created, log
 
 _CORNER = re.compile(
-    r"<(?:gml:)?(lower|upper)Corner>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)"
+    r"<(?:gml:)?(lower|upper)Corner(?:\s[^>]*)?>\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)"
 )
+_LOD12_NAME = re.compile(r"^LoD[12]_32_(\d+)_(\d+)_", re.IGNORECASE)
 _TILE_SUFFIXES = {".gml", ".xml"}
+Envelope = tuple[float, float, float, float]
+TileIndex = list[tuple[Path, Envelope | None]]
 
 
 def tile_files(folder: Path) -> list[Path]:
@@ -48,7 +51,20 @@ def _tile_paths(
     return paths if loop else paths[:1]
 
 
-def _envelope(path: Path) -> tuple[float, float, float, float] | None:
+def _envelope_from_name(path: Path) -> Envelope | None:
+    """Hamburg LoD1/LoD2: ``LoD1_32_565_5933_1_HH`` is the 1 km cell at (565000, 5933000)."""
+    match = _LOD12_NAME.match(path.stem)
+    if match is None:
+        return None
+    east_km, north_km = int(match.group(1)), int(match.group(2))
+    x0, y0 = east_km * 1000.0, north_km * 1000.0
+    return x0, y0, x0 + 1000.0, y0 + 1000.0
+
+
+def _envelope(path: Path) -> Envelope | None:
+    named = _envelope_from_name(path)
+    if named is not None:
+        return named
     with path.open(encoding="utf-8", errors="replace") as fh:
         head = fh.read(4000)
     found: dict[str, tuple[float, float]] = {}
@@ -59,11 +75,34 @@ def _envelope(path: Path) -> tuple[float, float, float, float] | None:
     return found["lower"][0], found["lower"][1], found["upper"][0], found["upper"][1]
 
 
-def tiles_in_bbox(folder: Path, bbox: tuple[float, float, float, float]) -> list[Path]:
+def tile_envelopes(folder: Path) -> TileIndex:
+    """Read each tile envelope once (filename grid for Hamburg LoD1/LoD2)."""
+    return [(path, _envelope(path)) for path in tile_files(folder)]
+
+
+def folder_extent(folder: Path, envelopes: TileIndex | None = None) -> Envelope:
+    """Union of tile envelopes, or raise if none can be read."""
+    items = envelopes if envelopes is not None else tile_envelopes(folder)
+    boxes = [env for _, env in items if env is not None]
+    if not boxes:
+        raise FileNotFoundError(f"no gml:Envelope in {folder}")
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+
+def tiles_in_bbox(
+    folder: Path,
+    bbox: Envelope,
+    envelopes: TileIndex | None = None,
+) -> list[Path]:
     minx, miny, maxx, maxy = bbox
+    items = envelopes if envelopes is not None else tile_envelopes(folder)
     hits: list[Path] = []
-    for path in tile_files(folder):
-        env = _envelope(path)
+    for path, env in items:
         if env is None:
             hits.append(path)
             continue
@@ -83,8 +122,10 @@ def convert_gml_crop(
     ifc_types: Mapping[str, str] | None = None,
     site_name: str = "Hamburg_Site",
     project_name: str = "Hamburg_LoD3",
-) -> None:
-    paths = tiles_in_bbox(tiles, bbox_epsg) if tiles.is_dir() else [tiles]
+    envelopes: TileIndex | None = None,
+    allow_empty: bool = False,
+) -> Path | None:
+    paths = tiles_in_bbox(tiles, bbox_epsg, envelopes) if tiles.is_dir() else [tiles]
     if not paths:
         raise FileNotFoundError(f"no *.gml in {tiles} intersects bbox {bbox_epsg}")
     ifc_path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,10 +145,17 @@ def convert_gml_crop(
     }
     if ifc_types is not None:
         kwargs["ifc_types"] = ifc_types
-    written = gml_to_ifc([str(p) for p in paths], str(ifc_path), **kwargs)
+    try:
+        written = gml_to_ifc([str(p) for p in paths], str(ifc_path), **kwargs)
+    except ValueError as exc:
+        if allow_empty and "no buildings parsed" in str(exc):
+            log.info("skip empty crop (tiles hit the umring, no buildings inside)")
+            return None
+        raise
     elapsed = time.perf_counter() - t0
     log.debug(f"gml_to_ifc: {elapsed:.2f}s")
     ifc_created(written, elapsed)
+    return Path(written)
 
 
 def convert_gml_tiles(

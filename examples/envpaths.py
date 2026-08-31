@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,20 +35,64 @@ def _load_dotenv() -> None:
             os.environ[key] = value
 
 
+_MNT_DRIVE = re.compile(r"^/mnt/([a-zA-Z])(?:/(.*))?$")
+_WIN_DRIVE = re.compile(r"^([a-zA-Z]):(?:[\\/](.*))?$")
+
+
+def _as_windows(raw: str) -> Path | None:
+    posix = raw.replace("\\", "/")
+    mnt = _MNT_DRIVE.match(posix)
+    if mnt:
+        rest = (mnt.group(2) or "").replace("/", "\\")
+        return Path(f"{mnt.group(1).upper()}:\\" + rest)
+    win = _WIN_DRIVE.match(posix)
+    if win:
+        rest = (win.group(2) or "").replace("/", "\\")
+        return Path(f"{win.group(1).upper()}:\\" + rest)
+    return None
+
+
+def _as_mnt(raw: str) -> Path | None:
+    posix = raw.replace("\\", "/")
+    mnt = _MNT_DRIVE.match(posix)
+    if mnt:
+        return Path(posix)
+    win = _WIN_DRIVE.match(posix)
+    if win:
+        rest = win.group(2) or ""
+        return Path(f"/mnt/{win.group(1).lower()}/{rest}")
+    return None
+
+
+def _resolve_dir(raw: str) -> Path | None:
+    """Windows drive first (``C:\\…``), then WSL ``/mnt/c/…``."""
+    seen: list[Path] = []
+    for candidate in (_as_windows(raw), _as_mnt(raw), Path(raw).expanduser()):
+        if candidate is None or candidate in seen:
+            continue
+        seen.append(candidate)
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def _env_path(name: str) -> Path | None:
     _load_dotenv()
     raw = os.environ.get(name, "").strip()
     if not raw:
         return None
-    return Path(raw).expanduser()
+    return _resolve_dir(raw) or Path(raw).expanduser()
 
 
 def _require_dir(name: str) -> Path:
-    path = _env_path(name)
-    if path is None:
+    _load_dotenv()
+    raw = os.environ.get(name, "").strip()
+    if not raw:
         raise FileNotFoundError(f"{name} is not set. Copy .env.example to .env and set the local folder.")
-    if not path.is_dir():
-        raise FileNotFoundError(f"{name} is not a directory: {path}")
+    path = _resolve_dir(raw)
+    if path is None:
+        tried = [p for p in (_as_windows(raw), _as_mnt(raw), Path(raw).expanduser()) if p is not None]
+        raise FileNotFoundError(f"{name} is not a directory (tried: {', '.join(str(p) for p in tried)})")
     return path
 
 

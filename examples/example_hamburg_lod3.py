@@ -21,7 +21,7 @@ def main() -> None:
         LOD3,
         output=ROOT / "output",
         prefix="hamburg_lod3_entities",
-        mode="typed",
+        mode="mesh",
         epsg=25832,
         ifc_types=hamburg_ifc_types(),
         loop=LOOP,
