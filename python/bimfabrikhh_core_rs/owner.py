@@ -15,6 +15,7 @@ A plain dict works without pydantic. Only keys you set overlay the Rust default.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _dist_version
 from typing import Optional
 
 try:
@@ -28,6 +29,12 @@ __all__ = [
     "OwnerIdentity",
     "defaults",
 ]
+
+try:
+    _VERSION: Optional[str] = _dist_version("bimfabrikhh_core_rs")
+except PackageNotFoundError:  # pragma: no cover - source tree without an install
+    # ``to_wire()`` drops the empty values, so Rust keeps its own version.
+    _VERSION = None
 
 
 class OwnerIdentity(BaseModel):
@@ -47,14 +54,16 @@ class OwnerIdentity(BaseModel):
     # FILE_NAME author + organization; also IfcOrganization
     organization: Optional[str] = Field(default="BIM-Leitstelle, LGV Hamburg")
     # FILE_NAME preprocessor_version (toolbox, not the product name)
-    preprocessor: Optional[str] = Field(default="bimfabrikhh_core_rs 0.1.1")
+    preprocessor: Optional[str] = Field(
+        default=f"bimfabrikhh_core_rs {_VERSION}" if _VERSION else None
+    )
     # FILE_NAME originating_system (the application)
     originating_system: Optional[str] = Field(default="BIMFabrikHH")
     # FILE_NAME authorization
     authorization: Optional[str] = Field(default="")
     # IfcApplication ApplicationFullName / Version / ApplicationIdentifier
     application: Optional[str] = Field(default="BIMFabrikHH")
-    version: Optional[str] = Field(default="0.1.1")
+    version: Optional[str] = Field(default=_VERSION)
     identifier: Optional[str] = Field(default="BIMFabrikHH")
 
     def to_wire(self) -> dict:
