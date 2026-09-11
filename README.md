@@ -206,7 +206,7 @@ cityjson_to_ifc(
 ```
 
 Default colours match BIMFabrikHH: roofs red, everything else yellow. `styles=False` writes no colour. Owner history
-defaults to Ahmed Salem / BIM-Leitstelle, LGV Hamburg; `owner_history=False` skips it.
+FILE_NAME author defaults to BIM-Leitstelle, LGV Hamburg; `owner_history=False` skips IfcOwnerHistory.
 
 ## Examples
 

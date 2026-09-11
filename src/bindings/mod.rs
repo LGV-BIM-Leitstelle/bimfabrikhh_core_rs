@@ -13,7 +13,7 @@ use crate::types::ParsedBuilding;
 use convert::{
     basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, gml_paths_from_py,
     ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py, terrain_from_py,
-    trees_from_py, xyz_list_from_py, faces_from_py,
+    terrain_parts_from_py, trees_from_py, xyz_list_from_py, faces_from_py,
 };
 
 type Bbox = Option<(f64, f64, f64, f64)>;
@@ -27,6 +27,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cityjson_to_ifc, m)?)?;
     m.add_function(wrap_pyfunction!(trees_to_ifc, m)?)?;
     m.add_function(wrap_pyfunction!(terrain_to_ifc, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain_parts_to_ifc, m)?)?;
     Ok(())
 }
 
@@ -342,4 +343,50 @@ fn terrain_to_ifc(
         progress,
     )?;
     api::terrain_to_ifc(&mesh, ifc_path, &opts).map_err(PyValueError::new_err)
+}
+
+/// Many guided DGM land-use parts → one IFC4 STEP, each part its own styled
+/// `IfcBuildingElementProxy` contained in the site. Same meshing/splitting is
+/// done in Python (`TerrainGenericApp` helpers); Rust only writes STEP.
+///
+/// ``parts`` is a list of dicts: ``name``, ``vertices`` (``[[x, y, z], ...]``),
+/// ``faces`` (``[[i, j, k], ...]``, 0-based), and optional ``color``,
+/// ``layer``, ``attributes`` and ``psets`` (``{pset_name: {property: value}}``).
+/// All parts share one local origin (``basepoint`` or the combined lower-left).
+/// ``psets`` here (like ``terrain_to_ifc``) is optional ``PsetSpec`` templates
+/// applied to every part on top of its own concrete psets.
+#[pyfunction]
+#[pyo3(signature = (parts, ifc_path, project_name="DGM", site_name="Hamburg_Site", epsg=25832, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false))]
+#[allow(clippy::too_many_arguments)]
+fn terrain_parts_to_ifc(
+    parts: Bound<'_, PyList>,
+    ifc_path: &str,
+    project_name: &str,
+    site_name: &str,
+    epsg: i32,
+    styles: bool,
+    cad_layer: bool,
+    owner_history: bool,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    psets: Option<Bound<'_, PyAny>>,
+    owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
+) -> PyResult<String> {
+    let parsed = terrain_parts_from_py(&parts)?;
+    let opts = export_options(
+        "mesh",
+        project_name,
+        site_name,
+        epsg,
+        styles,
+        cad_layer,
+        owner_history,
+        basepoint,
+        psets.as_ref(),
+        None,
+        None,
+        owner.as_ref(),
+        progress,
+    )?;
+    api::terrain_parts_to_ifc(&parsed, ifc_path, &opts).map_err(PyValueError::new_err)
 }

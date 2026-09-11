@@ -210,36 +210,80 @@ pub fn trees_to_ifc(
     Ok(ifc_path.to_string())
 }
 
+/// Local origin all terrain vertices are shifted by: the basepoint if given,
+/// else the lower-left corner of `vertices`.
+fn terrain_origin<'a>(
+    vertices: impl IntoIterator<Item = &'a [f64; 3]>,
+    opts: &ExportOptions,
+) -> [f64; 3] {
+    match opts.basepoint {
+        Some((x, y)) => [x, y, 0.0],
+        None => {
+            let (min_x, min_y) = vertices.into_iter().fold(
+                (f64::INFINITY, f64::INFINITY),
+                |(ax, ay), v| (ax.min(v[0]), ay.min(v[1])),
+            );
+            [min_x, min_y, 0.0]
+        }
+    }
+}
+
+/// One `TerrainInput` → one styled `Product` (nodata fill + spec psets).
+fn terrain_product(mesh: &TerrainInput, opts: &ExportOptions) -> Result<Product, String> {
+    let n_bad = mesh.vertices.iter().filter(|v| !elevation_ok(v[2])).count();
+    let mut product = terrain_to_product(mesh)?;
+    if opts.progress && n_bad > 0 {
+        eprintln!("  terrain {}: filled {n_bad} nodata z from nearest valid", mesh.name);
+    }
+    if !opts.psets.is_empty() {
+        for pset in psetspec::eval_map(&opts.psets, Scope::Building, &terrain_attr_map(mesh)) {
+            upsert_pset(&mut product.psets, pset);
+        }
+    }
+    Ok(product)
+}
+
+/// Terrain products are proxies contained directly in the site, never wrapped
+/// in an `IfcBuilding` and never a city model.
+fn write_terrain(products: Vec<Product>, ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
+    let mut write = opts.write_options();
+    write.city_model = false;
+    write.contain_in_site = true;
+    write_ifc_file(&group_products(products), ifc_path, &write)?;
+    Ok(ifc_path.to_string())
+}
+
 /// TerrainGenericApp write path: Python still meshes; Rust writes STEP.
 pub fn terrain_to_ifc(mesh: &TerrainInput, ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
     let mut mesh = mesh.clone();
     if mesh.placement.is_none() {
-        mesh.placement = Some(match opts.basepoint {
-            Some((x, y)) => [x, y, 0.0],
-            None => {
-                let (min_x, min_y) = mesh.vertices.iter().fold(
-                    (f64::INFINITY, f64::INFINITY),
-                    |(ax, ay), v| (ax.min(v[0]), ay.min(v[1])),
-                );
-                [min_x, min_y, 0.0]
-            }
-        });
+        mesh.placement = Some(terrain_origin(mesh.vertices.iter(), opts));
     }
-    let n_bad = mesh.vertices.iter().filter(|v| !elevation_ok(v[2])).count();
-    let mut product = terrain_to_product(&mesh)?;
-    if opts.progress && n_bad > 0 {
-        eprintln!("  terrain: filled {n_bad} nodata z from nearest valid");
+    let product = terrain_product(&mesh, opts)?;
+    write_terrain(vec![product], ifc_path, opts)
+}
+
+/// Guided DGM write path: many land-use parts (Fahrbahn, water, Parcels, …)
+/// into one IFC, each its own styled proxy. All parts share one local origin
+/// so they line up. Each part carries its own concrete psets and color/layer.
+pub fn terrain_parts_to_ifc(
+    parts: &[TerrainInput],
+    ifc_path: &str,
+    opts: &ExportOptions,
+) -> Result<String, String> {
+    if parts.is_empty() {
+        return Err("no terrain parts to write".into());
     }
-    if !opts.psets.is_empty() {
-        for pset in psetspec::eval_map(&opts.psets, Scope::Building, &terrain_attr_map(&mesh)) {
-            upsert_pset(&mut product.psets, pset);
+    let origin = terrain_origin(parts.iter().flat_map(|m| m.vertices.iter()), opts);
+    let mut products = Vec::with_capacity(parts.len());
+    for part in parts {
+        let mut mesh = part.clone();
+        if mesh.placement.is_none() {
+            mesh.placement = Some(origin);
         }
+        products.push(terrain_product(&mesh, opts)?);
     }
-    let mut write = opts.write_options();
-    write.city_model = false;
-    write.contain_in_site = true;
-    write_ifc_file(&group_products(vec![product]), ifc_path, &write)?;
-    Ok(ifc_path.to_string())
+    write_terrain(products, ifc_path, opts)
 }
 
 /// Write IFC4 STEP from products that were built outside this crate.

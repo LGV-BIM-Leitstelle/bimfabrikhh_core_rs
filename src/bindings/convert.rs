@@ -157,7 +157,7 @@ fn overlay_owner_field(dst: &mut String, d: &Bound<'_, PyDict>, keys: &[&str]) -
     Ok(())
 }
 
-/// `None` keeps the Rust default (Ahmed Salem / BIM-Leitstelle, LGV Hamburg). A dict or `to_wire()`
+/// `None` keeps the Rust default (FILE_NAME author = BIM-Leitstelle, LGV Hamburg). A dict or `to_wire()`
 /// object overlays any keys that are present.
 pub fn owner_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<OwnerIdentity> {
     let mut owner = OwnerIdentity::default();
@@ -354,8 +354,53 @@ pub fn terrain_from_py(
         color: rgb,
         layer: Some(layer.unwrap_or(TERRAIN_LAYER).into()),
         attributes,
+        psets: Vec::new(),
         placement: None,
     })
+}
+
+/// A list of land-use part dicts → `TerrainInput`s for `terrain_parts_to_ifc`.
+///
+/// Each dict: `name`, `vertices`, `faces`, optional `color`, `layer`,
+/// `attributes`, and `psets` (`{pset_name: {property: value}}`, same shape as
+/// `write_ifc` products).
+pub fn terrain_parts_from_py(parts: &Bound<'_, PyList>) -> PyResult<Vec<TerrainInput>> {
+    let mut out = Vec::with_capacity(parts.len());
+    for item in parts.iter() {
+        let d = item
+            .downcast::<PyDict>()
+            .map_err(|_| PyValueError::new_err("terrain_parts_to_ifc expects a list of dicts"))?;
+        let name: String = dict_req(d, "name")?;
+        let vertices = xyz_list_from_py(&req(d, "vertices")?)?;
+        let faces = faces_from_py(&req(d, "faces")?)?;
+        let color = match d.get_item("color")? {
+            Some(v) if !v.is_none() => rgb_style_from_py(&v)?,
+            _ => TERRAIN_RGB,
+        };
+        let layer: Option<String> = match d.get_item("layer")? {
+            Some(v) if !v.is_none() => Some(v.extract()?),
+            _ => None,
+        };
+        let attributes = match d.get_item("attributes")? {
+            Some(v) if !v.is_none() => attrs_from_py(&v)?,
+            _ => HashMap::new(),
+        };
+        let psets = match d.get_item("psets")? {
+            Some(v) if !v.is_none() => psets_from_py(&v)?,
+            _ => Vec::new(),
+        };
+        out.push(TerrainInput {
+            name: if name.is_empty() { "DGM".into() } else { name },
+            vertices,
+            faces,
+            color,
+            layer: Some(layer.unwrap_or_else(|| TERRAIN_LAYER.into())),
+            attributes,
+            psets,
+            placement: None,
+        });
+    }
+    Ok(out)
 }
 
 pub fn products_from_py(products: &Bound<'_, PyList>) -> PyResult<Vec<Product>> {

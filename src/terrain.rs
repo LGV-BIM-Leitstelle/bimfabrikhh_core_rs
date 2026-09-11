@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::color::TERRAIN_RGB;
-use crate::types::{Face, Product};
+use crate::types::{Face, Product, Pset};
 
 pub const TERRAIN_LAYER: &str = "_BIM_DGM_Gelaende";
 
@@ -67,6 +67,9 @@ pub struct TerrainInput {
     pub color: [f64; 3],
     pub layer: Option<String>,
     pub attributes: HashMap<String, String>,
+    /// Concrete property sets attached to this part (in addition to any
+    /// `ExportOptions::psets` specs). Empty for the single-mesh path.
+    pub psets: Vec<Pset>,
     /// World origin. Vertices are shifted into local coords (z kept). Same as trees.
     pub placement: Option<[f64; 3]>,
 }
@@ -80,6 +83,7 @@ impl Default for TerrainInput {
             color: TERRAIN_RGB,
             layer: Some(TERRAIN_LAYER.into()),
             attributes: HashMap::new(),
+            psets: Vec::new(),
             placement: None,
         }
     }
@@ -117,7 +121,7 @@ pub fn terrain_to_product(mesh: &TerrainInput) -> Result<Product, String> {
         parent: mesh.name.clone(),
         vertices,
         faces: mesh.faces.clone(),
-        psets: Vec::new(),
+        psets: mesh.psets.clone(),
         color: Some(mesh.color),
         layer: mesh.layer.clone(),
         extra: Vec::new(),

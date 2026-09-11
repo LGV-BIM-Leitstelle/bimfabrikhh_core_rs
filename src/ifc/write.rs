@@ -15,6 +15,7 @@ use super::step::{format_real, step_str, Ids};
 pub struct OwnerIdentity {
     pub family_name: String,
     pub given_name: String,
+    /// FILE_NAME author (Autor/in) and IfcOrganization.
     pub organization: String,
     pub application: String,
     pub version: String,
@@ -346,7 +347,7 @@ fn write_ifc<W: Write>(
     writeln!(w, "HEADER;")?;
     let created = unix_now();
     let ohn = &opts.owner;
-    let author = format!("{} {}", ohn.given_name, ohn.family_name);
+    let author = ohn.organization.clone();
     // Header Implementation Guide: CoordinationView is the agreed ViewDefinition name.
     // Ifc4ReferenceView is not in that list (HEADER_03 on many checkers).
     writeln!(w, "FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');")?;
@@ -394,9 +395,8 @@ fn write_ifc<W: Write>(
         let ohn = id.next();
         writeln!(
             w,
-            "#{person}=IFCPERSON($,{family},{given},$,$,$,$,$);",
-            family = step_str(&opts.owner.family_name),
-            given = step_str(&opts.owner.given_name),
+            "#{person}=IFCPERSON($,{family},$,$,$,$,$,$);",
+            family = step_str(&opts.owner.organization),
         )?;
         writeln!(
             w,

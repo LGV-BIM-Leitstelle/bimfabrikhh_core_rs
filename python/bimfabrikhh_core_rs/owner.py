@@ -41,10 +41,10 @@ class OwnerIdentity(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # FILE_NAME author ← given_name + family_name; also IfcPerson
+    # IfcPerson (FILE_NAME author is ``organization``)
     family_name: Optional[str] = Field(default="Salem")
     given_name: Optional[str] = Field(default="Ahmed")
-    # FILE_NAME organization; also IfcOrganization
+    # FILE_NAME author + organization; also IfcOrganization
     organization: Optional[str] = Field(default="BIM-Leitstelle, LGV Hamburg")
     # FILE_NAME preprocessor_version (toolbox, not the product name)
     preprocessor: Optional[str] = Field(default="bimfabrikhh_core_rs 0.1.1")
