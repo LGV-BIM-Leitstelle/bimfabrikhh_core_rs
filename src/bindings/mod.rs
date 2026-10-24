@@ -238,6 +238,10 @@ fn cityjson_to_ifc(
 /// ``include_crown`` / ``is_stump``, optional ``attributes`` (source fields for
 /// ``psets`` specs), optional raw ``psets``, optional colours.
 ///
+/// ``trunk_height`` is the cylinder height, not the Stammhöhe: the crown sphere is
+/// centred on the cylinder top, so pass Stammhöhe + ``crown_radius`` (BIMFabrikHH_core
+/// ``TreeDimensions.trunk_cylinder_height``). For stumps it is the stump height.
+///
 /// ``psets`` takes ``bimfabrikhh_core_rs.psets.PsetSpec`` objects (or their dicts),
 /// same as ``gml_to_ifc``. Omit it and no property sets are written.
 ///

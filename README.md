@@ -140,6 +140,11 @@ trees_to_ifc(
 )
 ```
 
+`trunk_height` is the cylinder height, not the Stammhöhe. The crown sphere is centred on the cylinder top, so pass
+Stammhöhe + `crown_radius` (BIMFabrikHH `TreeDimensions.trunk_cylinder_height`). The treetop then ends at
+Stammhöhe + Kronendurchmesser, the published `_Baumhoehe`. In the example above the Stammhöhe is 1.5 m and the treetop
+is at 6.5 m.
+
 Terrain (Python still samples / Delaunay; Rust only writes IFC):
 
 ```python
