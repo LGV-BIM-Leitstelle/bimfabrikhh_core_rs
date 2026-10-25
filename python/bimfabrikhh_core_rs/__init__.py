@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 from bimfabrikhh_core_rs.bimfabrikhh_core_rs import (
     cityjson_to_ifc,
+    declared_crs,
     gml_to_ifc,
     parse_cityjson,
     parse_cityjson_text,
@@ -42,4 +43,5 @@ __all__ = [
     "trees_to_ifc",
     "terrain_to_ifc",
     "terrain_parts_to_ifc",
+    "declared_crs",
 ]

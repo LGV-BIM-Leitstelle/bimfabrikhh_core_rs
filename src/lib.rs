@@ -11,6 +11,7 @@
 //! - [`color`] — default RGB per surface, optional caller overrides
 //! - [`geom`] — area / perimeter / tilt and typed vs mesh conversion
 //! - [`ifc`] — GUID, STEP text, IFC4 writer
+//! - [`srs`] — CRS a source declares (`srsName` / `referenceSystem`), no PROJ
 //! - [`tree`] — n-gon trunk + icosphere crown (TreesGenericApp)
 //! - [`terrain`] — one triangulated DGM mesh (TerrainGenericApp write path)
 //! - [`types`] — shared parse / export structs
@@ -23,6 +24,7 @@ mod ifc;
 mod katalog;
 mod parse;
 mod psetspec;
+mod srs;
 mod bindings;
 mod terrain;
 mod tree;

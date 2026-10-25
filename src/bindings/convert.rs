@@ -8,7 +8,7 @@ use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
 
 use crate::api::CityJsonSource;
 use crate::color::{Colors, CROWN_RGB, TERRAIN_RGB, TRUNK_RGB};
-use crate::ifc::OwnerIdentity;
+use crate::ifc::{OwnerIdentity, ProjectedCrs};
 use crate::psetspec::{AttrKey, Catalog, PsetSpec, QtyKey, Scope, Value};
 use crate::terrain::{TerrainInput, TERRAIN_LAYER};
 use crate::tree::TreeInput;
@@ -155,6 +155,84 @@ fn overlay_owner_field(dst: &mut String, d: &Bound<'_, PyDict>, keys: &[&str]) -
         }
     }
     Ok(())
+}
+
+const CRS_KEYS: [&str; 6] = [
+    "name",
+    "description",
+    "geodetic_datum",
+    "vertical_datum",
+    "map_projection",
+    "map_zone",
+];
+
+/// `IfcProjectedCRS` from a dict with [`CRS_KEYS`] or an object with
+/// `model_dump()` (BIMFabrikHH_core `CoordinateSystem`). `None` means no
+/// georeferencing. `name` and `geodetic_datum` are required; unknown keys are
+/// rejected so a typo cannot silently drop a field.
+pub fn crs_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Option<ProjectedCrs>> {
+    let Some(obj) = obj.filter(|o| !o.is_none()) else {
+        return Ok(None);
+    };
+    let d = if obj.downcast::<PyDict>().is_ok() {
+        as_dict(obj, "crs")?
+    } else if obj.hasattr("model_dump")? {
+        as_dict(&obj.call_method0("model_dump")?, "crs.model_dump()")?
+    } else {
+        return Err(PyValueError::new_err(
+            "crs must be a dict or an object with model_dump() (see bimfabrikhh_core_rs.crs)",
+        ));
+    };
+    for key in d.keys() {
+        let key: String = key.extract()?;
+        if !CRS_KEYS.contains(&key.as_str()) {
+            return Err(PyValueError::new_err(format!(
+                "crs has unknown key {key:?}; expected {CRS_KEYS:?}"
+            )));
+        }
+    }
+    let text = |key: &str| -> PyResult<Option<String>> {
+        opt_item(&d, key)
+            .map(|v| any_to_string(&v))
+            .transpose()
+            .map(|v| v.filter(|s| !s.is_empty()))
+    };
+    let required = |key: &str| -> PyResult<String> {
+        text(key)?.ok_or_else(|| PyValueError::new_err(format!("crs needs {key:?}")))
+    };
+    Ok(Some(ProjectedCrs {
+        name: required("name")?,
+        description: text("description")?,
+        geodetic_datum: required("geodetic_datum")?,
+        vertical_datum: text("vertical_datum")?,
+        map_projection: text("map_projection")?,
+        map_zone: text("map_zone")?,
+    }))
+}
+
+/// Wrap a Python callable `transform(xs, ys) -> (xs, ys)` (e.g. pyproj
+/// `Transformer.transform`) as an in-place x/y transformation. It gets two
+/// lists and must return two sequences of the same length.
+pub fn xy_transform_from_py<'a>(
+    transform: &'a Bound<'a, PyAny>,
+) -> impl FnMut(&mut [f64], &mut [f64]) -> Result<(), String> + 'a {
+    move |xs, ys| {
+        let (new_xs, new_ys): (Vec<f64>, Vec<f64>) = transform
+            .call1((xs.to_vec(), ys.to_vec()))
+            .and_then(|r| r.extract())
+            .map_err(|e| format!("transform(xs, ys) failed: {e}"))?;
+        if new_xs.len() != xs.len() || new_ys.len() != ys.len() {
+            return Err(format!(
+                "transform(xs, ys) returned {} / {} values for {} points",
+                new_xs.len(),
+                new_ys.len(),
+                xs.len()
+            ));
+        }
+        xs.copy_from_slice(&new_xs);
+        ys.copy_from_slice(&new_ys);
+        Ok(())
+    }
 }
 
 /// `None` keeps the Rust default (FILE_NAME author = BIM-Leitstelle, LGV Hamburg). A dict or `to_wire()`

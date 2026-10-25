@@ -18,7 +18,7 @@ per building.
             "_Dachform":       Attr("roof_type", catalog="dachform"),
         },
     )
-    cityjson_to_ifc(page, out, epsg=25832, psets=[objektinformation])
+    cityjson_to_ifc(page, out, psets=[objektinformation])
 
 Omit ``psets`` and the IFC is written without property sets. There is no
 Rust-side fallback. ``hamburg_defaults()`` is a Python helper if you want the

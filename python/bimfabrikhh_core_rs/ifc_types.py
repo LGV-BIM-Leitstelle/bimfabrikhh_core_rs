@@ -7,10 +7,10 @@ and omitting ``ifc_types`` means no special typing — every product is
     from bimfabrikhh_core_rs import cityjson_to_ifc
     from bimfabrikhh_core_rs.ifc_types import IfcTypeMap, hamburg_ifc_types
 
-    cityjson_to_ifc(page, out, epsg=25832, ifc_types=hamburg_ifc_types())
+    cityjson_to_ifc(page, out, ifc_types=hamburg_ifc_types())
 
     cityjson_to_ifc(
-        page, out, epsg=25832,
+        page, out,
         ifc_types=IfcTypeMap(RoofSurface="IfcRoof", WallSurface="IfcWall"),
     )
 
