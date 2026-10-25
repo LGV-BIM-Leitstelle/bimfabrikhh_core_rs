@@ -44,11 +44,26 @@ impl Default for OwnerIdentity {
     }
 }
 
+/// `IfcProjectedCRS` attributes. There is no PROJ here, so the caller fills
+/// them (BIMFabrikHH_core `CoordinateSystem`, `bimfabrikhh_core_rs.crs`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectedCrs {
+    /// e.g. `EPSG:25832`
+    pub name: String,
+    pub description: Option<String>,
+    pub geodetic_datum: String,
+    pub vertical_datum: Option<String>,
+    pub map_projection: Option<String>,
+    pub map_zone: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct WriteOptions {
     pub project_name: String,
     pub site_name: String,
-    pub epsg: i32,
+    /// Map CRS of the coordinates. `None` writes no `IfcProjectedCRS` /
+    /// `IfcMapConversion`: the coordinates have no known CRS.
+    pub crs: Option<ProjectedCrs>,
     pub styles: bool,
     /// One `IfcPresentationLayerWithStyle` named `_BIM_Stadtmodell` on every product mesh.
     pub cad_layer: bool,
@@ -67,7 +82,7 @@ impl Default for WriteOptions {
         Self {
             project_name: "bimfabrikhh_core_rs".into(),
             site_name: "Site".into(),
-            epsg: 25833,
+            crs: None,
             styles: true,
             cad_layer: false,
             owner_history: true,
@@ -80,12 +95,8 @@ impl Default for WriteOptions {
     }
 }
 
-fn crs_name(epsg: i32) -> (&'static str, &'static str) {
-    match epsg {
-        25832 => ("ETRS89 / UTM zone 32N", "32"),
-        25833 => ("ETRS89 / UTM zone 33N", "33"),
-        _ => ("ETRS89 / UTM", "$"),
-    }
+fn step_opt(value: &Option<String>) -> String {
+    value.as_deref().map(step_str).unwrap_or_else(|| "$".into())
 }
 
 pub fn write_ifc_file(
@@ -382,8 +393,6 @@ fn write_ifc<W: Write>(
     let project_id = id.next();
     let site_id = id.next();
     let place = id.next();
-    let crs = id.next();
-    let mapconv = id.next();
     let rel_ps = id.next();
 
     let mut owner = String::from("$");
@@ -454,16 +463,21 @@ fn write_ifc<W: Write>(
         gid = step_str(&ifc_gid("site")),
         name = step_str(&opts.site_name),
     )?;
-    let (crs_label, zone) = crs_name(opts.epsg);
-    let zone_lit = if zone == "$" { "$".into() } else { step_str(zone) };
-    writeln!(
-        w,
-        "#{crs}=IFCPROJECTEDCRS('EPSG:{epsg}',{label},'ETRS89','DHHN2016','Transverse Mercator',{zone},$);",
-        epsg = opts.epsg,
-        label = step_str(crs_label),
-        zone = zone_lit,
-    )?;
-    writeln!(w, "#{mapconv}=IFCMAPCONVERSION(#{ctx},#{crs},0.,0.,0.,1.,0.,1.);")?;
+    if let Some(projected) = &opts.crs {
+        let crs = id.next();
+        let mapconv = id.next();
+        writeln!(
+            w,
+            "#{crs}=IFCPROJECTEDCRS({name},{description},{geodetic},{vertical},{projection},{zone},$);",
+            name = step_str(&projected.name),
+            description = step_opt(&projected.description),
+            geodetic = step_str(&projected.geodetic_datum),
+            vertical = step_opt(&projected.vertical_datum),
+            projection = step_opt(&projected.map_projection),
+            zone = step_opt(&projected.map_zone),
+        )?;
+        writeln!(w, "#{mapconv}=IFCMAPCONVERSION(#{ctx},#{crs},0.,0.,0.,1.,0.,1.);")?;
+    }
     writeln!(
         w,
         "#{rel_ps}=IFCRELAGGREGATES({gid},{owner}$,$,#{project_id},(#{site_id}));",
@@ -699,5 +713,50 @@ mod tests {
         assert_eq!(file_name_stamp(0), "1970-01-01T00:00:00");
         assert_eq!(file_name_stamp(86400), "1970-01-02T00:00:00");
         assert_eq!(file_name_stamp(1_700_000_000), "2023-11-14T22:13:20");
+    }
+
+    fn step_text(crs: Option<ProjectedCrs>) -> String {
+        let opts = WriteOptions { crs, ..WriteOptions::default() };
+        let mut out = Vec::new();
+        write_ifc(&mut out, &[], &opts, "test.ifc").unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn projected_crs_writes_caller_fields() {
+        let text = step_text(Some(ProjectedCrs {
+            name: "EPSG:10285".into(),
+            description: Some("ETRS89/DREF91/2016 / 3-degree Gauss-Kruger zone 3".into()),
+            geodetic_datum: "ETRS89/DREF91/2016".into(),
+            vertical_datum: Some("EPSG:7837".into()),
+            map_projection: Some("Transverse Mercator".into()),
+            map_zone: Some("3".into()),
+        }));
+        assert!(text.contains(
+            "IFCPROJECTEDCRS('EPSG:10285','ETRS89/DREF91/2016 / 3-degree Gauss-Kruger zone 3',\
+             'ETRS89/DREF91/2016','EPSG:7837','Transverse Mercator','3',$);"
+        ));
+        assert!(text.contains("IFCMAPCONVERSION("));
+    }
+
+    #[test]
+    fn projected_crs_writes_missing_fields_as_unset() {
+        let text = step_text(Some(ProjectedCrs {
+            name: "EPSG:25832".into(),
+            description: None,
+            geodetic_datum: "ETRS89".into(),
+            vertical_datum: None,
+            map_projection: None,
+            map_zone: None,
+        }));
+        assert!(text.contains("IFCPROJECTEDCRS('EPSG:25832',$,'ETRS89',$,$,$,$);"));
+    }
+
+    #[test]
+    fn no_crs_writes_no_georeferencing() {
+        let text = step_text(None);
+        assert!(!text.contains("IFCPROJECTEDCRS"));
+        assert!(!text.contains("IFCMAPCONVERSION"));
+        assert!(text.contains("IFCSITE("));
     }
 }

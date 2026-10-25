@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from bimfabrikhh_core_rs import trees_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.owner import defaults
 from bimfabrikhh_core_rs.tree_mapping import specs
 
@@ -29,10 +30,10 @@ SPACING_M = 8.0
 SEED = 1
 
 # Crown is the size driver. Trunk radius and height follow it so a tall tree
-# never gets a small crown (same fallback as BIMFabrik ``resolve_tree_dimensions``).
-_MIN_TRUNK_HEIGHT_M = 3.5
-_TRUNK_HEIGHT_CROWN_FACTOR = 1.35
-_SMALL_CROWN_DIAMETER_M = 3.0
+# never gets a small crown. Same rule as BIMFabrikHH_core ``resolve_tree_dimensions``:
+# Stammhöhe = 0.85 × Kronendurchmesser (at least 1.10 m).
+_TRUNK_HEIGHT_TO_CROWN_RATIO = 0.85
+_MIN_STAMMHOEHE_M = 1.10
 _TRUNK_TO_CROWN = 0.08
 _CROWN_R_MIN = 1.2
 _CROWN_R_MAX = 6.4
@@ -44,17 +45,20 @@ _GATTUNG = (
 )
 
 
-def _trunk_height(crown_radius: float) -> float:
-    crown_diameter = crown_radius * 2
-    if crown_diameter < _SMALL_CROWN_DIAMETER_M:
-        return _MIN_TRUNK_HEIGHT_M
-    return _TRUNK_HEIGHT_CROWN_FACTOR * crown_diameter
+def _trunk_cylinder_height(crown_radius: float) -> float:
+    """``trunk_height`` for rust: Stammhöhe + crown radius.
+
+    The crown sphere is centred on the cylinder top, so the treetop ends at
+    Stammhöhe + Kronendurchmesser (the published ``_Baumhoehe``).
+    """
+    stammhoehe = max(_MIN_STAMMHOEHE_M, _TRUNK_HEIGHT_TO_CROWN_RATIO * crown_radius * 2)
+    return stammhoehe + crown_radius
 
 
 def _dims(rng: random.Random) -> tuple[float, float, float]:
     crown_r = rng.uniform(_CROWN_R_MIN, _CROWN_R_MAX)
     trunk_r = crown_r * _TRUNK_TO_CROWN
-    return trunk_r, _trunk_height(crown_r), crown_r
+    return trunk_r, _trunk_cylinder_height(crown_r), crown_r
 
 
 def _tree(i: int, *, cols: int, detail: int, name_width: int, rng: random.Random) -> dict:
@@ -88,7 +92,7 @@ def _write(path: Path, n: int, *, cols: int, detail: int) -> str:
     log.debug("output:  %s", path)
     log.debug("trees:   %d  grid=%dx%d  spacing=%.1f m", n, cols, rows, SPACING_M)
     log.debug("mesh:    crown detail=%d  trunk segments=8", detail)
-    log.debug("origin:  %s  epsg=25832  seed=%d", ORIGIN, SEED)
+    log.debug("origin:  %s  crs=EPSG:25832  seed=%d", ORIGIN, SEED)
 
     t0 = time.perf_counter()
     rng = random.Random(SEED)
@@ -108,7 +112,7 @@ def _write(path: Path, n: int, *, cols: int, detail: int) -> str:
     written = trees_to_ifc(
         trees,
         str(path),
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         psets=specs(),
         owner=defaults(),
         basepoint=(ORIGIN[0], ORIGIN[1]),

@@ -11,6 +11,7 @@ import time
 
 from bimfabrikhh_core_rs import gml_to_ifc, parse_gml
 from bimfabrikhh_core_rs.attribute_mapping import specs
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 
 from envpaths import FIXTURES, ROOT
@@ -57,7 +58,7 @@ def main() -> None:
             mode=mode,
             project_name="Dresden_Sachsen_LoD2",
             site_name="Dresden_Site",
-            epsg=25833,
+            crs=etrs89_utm(33, vertical_datum="EPSG:7837"),
             ifc_types=ifc_types,
             psets=specs(),
             cad_layer=True,

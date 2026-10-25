@@ -57,6 +57,8 @@ pub struct TreeInput {
     pub name: String,
     pub position: [f64; 3],
     pub trunk_radius: f64,
+    /// Cylinder height, not the Stammhöhe: the crown sphere is centred on its top,
+    /// so callers pass Stammhöhe + `crown_radius`.
     pub trunk_height: f64,
     pub trunk_segments: u32,
     pub crown_radius: f64,

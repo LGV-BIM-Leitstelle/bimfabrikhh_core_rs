@@ -20,10 +20,10 @@ write call, real geometry.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 from bimfabrikhh_core_rs import terrain_parts_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.owner import defaults
 
 from envpaths import ROOT
@@ -165,7 +165,7 @@ def main() -> None:
         str(OUTPUT),
         project_name="DGM_Guided",
         site_name="Hamburg_Site",
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         basepoint=_ORIGIN,
         owner=defaults(),
         progress=ENABLED,

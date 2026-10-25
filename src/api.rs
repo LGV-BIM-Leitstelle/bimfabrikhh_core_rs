@@ -5,16 +5,18 @@
 //! arguments into these calls.
 
 use std::collections::HashMap;
+use std::fs;
 use std::time::Instant;
 
 use rayon::prelude::*;
 
-use crate::cityjson::{parse_cityjson_file, parse_cityjson_str};
+use crate::cityjson::{parse_cityjson_json, parse_cityjson_value};
 use crate::color::Colors;
 use crate::geom::{buildings_to_export, ExportConfig};
-use crate::ifc::{write_ifc_file, OwnerIdentity, WriteOptions};
+use crate::ifc::{write_ifc_file, OwnerIdentity, ProjectedCrs, WriteOptions};
 use crate::parse::{parse_gml_file, BboxUtm};
 use crate::psetspec::{self, PsetSpec, Scope};
+use crate::srs::{cityjson_declared_crs, common_declared_crs, gml_declared_crs, reconcile_crs, DeclaredCrs};
 use crate::terrain::{elevation_ok, terrain_attr_map, terrain_to_product, TerrainInput};
 use crate::tree::{drape_trees, tree_attr_map, trees_to_products, TreeInput};
 use crate::types::{upsert_pset, BuildingExport, Face, ParsedBuilding, Product};
@@ -28,7 +30,8 @@ pub struct ExportOptions {
     pub mode: String,
     pub project_name: String,
     pub site_name: String,
-    pub epsg: i32,
+    /// `None` writes no georeferencing.
+    pub crs: Option<ProjectedCrs>,
     pub styles: bool,
     /// Off by default. When true, products are assigned to `_BIM_Stadtmodell`.
     pub cad_layer: bool,
@@ -60,7 +63,7 @@ impl ExportOptions {
         WriteOptions {
             project_name: self.project_name.clone(),
             site_name: self.site_name.clone(),
-            epsg: self.epsg,
+            crs: self.crs.clone(),
             styles: self.styles,
             cad_layer: self.cad_layer,
             owner_history: self.owner_history,
@@ -111,16 +114,25 @@ pub fn parse_gml_sources(
     Ok(buildings)
 }
 
+/// Buildings of all documents, plus the CRS they declare in
+/// `metadata.referenceSystem` (see [`common_declared_crs`]).
 pub fn parse_cityjson_source(
     source: &CityJsonSource,
     building_id_filter: Option<&str>,
     bbox_epsg: Option<BboxUtm>,
-) -> Result<Vec<ParsedBuilding>, String> {
+) -> Result<(Vec<ParsedBuilding>, Option<DeclaredCrs>), String> {
     let mut buildings = Vec::new();
+    let mut declared = Vec::new();
+    let mut add = |text: &str| -> Result<(), String> {
+        let root = parse_cityjson_json(text)?;
+        declared.push(cityjson_declared_crs(&root));
+        buildings.extend(parse_cityjson_value(&root, building_id_filter, bbox_epsg)?);
+        Ok(())
+    };
     match source {
         CityJsonSource::Texts(docs) => {
             for text in docs {
-                buildings.extend(parse_cityjson_str(text, building_id_filter, bbox_epsg)?);
+                add(text)?;
             }
         }
         CityJsonSource::Paths(paths) => {
@@ -128,26 +140,65 @@ pub fn parse_cityjson_source(
                 return Err("cityjson source list is empty".into());
             }
             for path in paths {
-                buildings.extend(parse_cityjson_file(path, building_id_filter, bbox_epsg)?);
+                add(&fs::read_to_string(path).map_err(|e| format!("open {path}: {e}"))?)?;
             }
         }
     }
     if buildings.is_empty() {
         return Err("no buildings parsed from CityJSON".into());
     }
-    Ok(buildings)
+    Ok((buildings, common_declared_crs(declared)?))
+}
+
+/// Coordinate transformation of x/y in place, called once with all points of
+/// all buildings. Z is never passed; heights stay as parsed.
+pub type XyTransform<'a> = dyn FnMut(&mut [f64], &mut [f64]) -> Result<(), String> + 'a;
+
+/// Apply `transform` to every ring and interior point of `buildings`.
+pub fn transform_buildings(buildings: &mut [ParsedBuilding], transform: &mut XyTransform) -> Result<(), String> {
+    let points = || {
+        buildings
+            .iter()
+            .flat_map(|b| &b.boundaries)
+            .flat_map(|bd| std::iter::once(&bd.ring).chain(&bd.interiors))
+            .flatten()
+    };
+    let mut xs: Vec<f64> = points().map(|p| p[0]).collect();
+    let mut ys: Vec<f64> = points().map(|p| p[1]).collect();
+    transform(&mut xs, &mut ys)?;
+    if let Some(bad) = xs.iter().zip(&ys).position(|(x, y)| !x.is_finite() || !y.is_finite()) {
+        return Err(format!("transform returned a non-finite coordinate for point {bad}"));
+    }
+    let mut out = xs.into_iter().zip(ys);
+    for p in buildings
+        .iter_mut()
+        .flat_map(|b| &mut b.boundaries)
+        .flat_map(|bd| std::iter::once(&mut bd.ring).chain(&mut bd.interiors))
+        .flatten()
+    {
+        (p[0], p[1]) = out.next().ok_or("transform returned fewer points")?;
+    }
+    Ok(())
 }
 
 /// Parse CityGML (one file or many) and write a single IFC.
+///
+/// `bbox_epsg` filters in the source CRS; `transform` then maps the kept
+/// coordinates into the CRS of `opts.crs` / `opts.basepoint`. `opts.crs` is
+/// checked against the `srsName` of the files and gets their vertical datum
+/// when it has none (see [`reconcile_crs`]).
 pub fn gml_to_ifc(
     paths: &[String],
     ifc_path: &str,
     building_id_filter: Option<&str>,
     bbox_epsg: Option<BboxUtm>,
+    transform: Option<&mut XyTransform>,
     opts: &ExportOptions,
 ) -> Result<String, String> {
+    let declared = common_declared_crs(paths.iter().map(gml_declared_crs).collect::<Result<Vec<_>, _>>()?)?;
+    let crs = reconcile_crs(opts.crs.clone(), declared.as_ref(), transform.is_some())?;
     let t0 = Instant::now();
-    let buildings = parse_gml_sources(paths, building_id_filter, bbox_epsg, opts.progress)?;
+    let mut buildings = parse_gml_sources(paths, building_id_filter, bbox_epsg, opts.progress)?;
     if opts.progress {
         eprintln!(
             "  parse: {:.2}s ({} buildings)",
@@ -155,19 +206,29 @@ pub fn gml_to_ifc(
             buildings.len()
         );
     }
-    write_buildings(&buildings, ifc_path, opts)
+    if let Some(transform) = transform {
+        transform_buildings(&mut buildings, transform)?;
+    }
+    write_buildings(&buildings, ifc_path, opts, crs)
 }
 
 /// Parse CityJSON (text, one file, or many) and write a single IFC.
+/// `bbox_epsg`, `transform` and the `crs` check work as in [`gml_to_ifc`],
+/// with `metadata.referenceSystem` as the declared CRS.
 pub fn cityjson_to_ifc(
     source: &CityJsonSource,
     ifc_path: &str,
     building_id_filter: Option<&str>,
     bbox_epsg: Option<BboxUtm>,
+    transform: Option<&mut XyTransform>,
     opts: &ExportOptions,
 ) -> Result<String, String> {
-    let buildings = parse_cityjson_source(source, building_id_filter, bbox_epsg)?;
-    write_buildings(&buildings, ifc_path, opts)
+    let (mut buildings, declared) = parse_cityjson_source(source, building_id_filter, bbox_epsg)?;
+    let crs = reconcile_crs(opts.crs.clone(), declared.as_ref(), transform.is_some())?;
+    if let Some(transform) = transform {
+        transform_buildings(&mut buildings, transform)?;
+    }
+    write_buildings(&buildings, ifc_path, opts, crs)
 }
 
 /// TreesGenericApp path: Python prepares records, Rust meshes trunk + crown and writes STEP.
@@ -300,6 +361,7 @@ fn write_buildings(
     buildings: &[ParsedBuilding],
     ifc_path: &str,
     opts: &ExportOptions,
+    crs: Option<ProjectedCrs>,
 ) -> Result<String, String> {
     let t0 = Instant::now();
     let export = buildings_to_export(buildings, &opts.export_config());
@@ -311,7 +373,9 @@ fn write_buildings(
         );
     }
     let t1 = Instant::now();
-    write_ifc_file(&export, ifc_path, &opts.write_options())?;
+    let mut write = opts.write_options();
+    write.crs = crs;
+    write_ifc_file(&export, ifc_path, &write)?;
     if opts.progress {
         eprintln!("  write: {:.2}s", t1.elapsed().as_secs_f64());
     }
@@ -337,4 +401,53 @@ pub fn group_products(products: Vec<Product>) -> Vec<BuildingExport> {
             products: map.remove(&id).unwrap_or_default(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Boundary, BuildingAttributes};
+
+    fn building() -> ParsedBuilding {
+        ParsedBuilding {
+            id: "b1".into(),
+            gml_name: None,
+            lod: "2".into(),
+            attributes: BuildingAttributes::default(),
+            boundaries: vec![Boundary {
+                ring: vec![[0.0, 0.0, 5.0], [10.0, 0.0, 5.0], [10.0, 10.0, 7.0]],
+                interiors: vec![vec![[2.0, 2.0, 6.0]]],
+                surface_type: "WallSurface".into(),
+                source_part_id: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn transform_buildings_moves_ring_and_interior_xy_keeps_z() {
+        let mut buildings = vec![building()];
+        let mut calls = 0;
+        let mut shift = |xs: &mut [f64], ys: &mut [f64]| {
+            calls += 1;
+            xs.iter_mut().for_each(|x| *x += 100.0);
+            ys.iter_mut().for_each(|y| *y += 200.0);
+            Ok(())
+        };
+        transform_buildings(&mut buildings, &mut shift).unwrap();
+        assert_eq!(calls, 1);
+        let bd = &buildings[0].boundaries[0];
+        assert_eq!(bd.ring, vec![[100.0, 200.0, 5.0], [110.0, 200.0, 5.0], [110.0, 210.0, 7.0]]);
+        assert_eq!(bd.interiors, vec![vec![[102.0, 202.0, 6.0]]]);
+    }
+
+    #[test]
+    fn transform_buildings_rejects_non_finite_result() {
+        let mut buildings = vec![building()];
+        let mut broken = |xs: &mut [f64], _: &mut [f64]| {
+            xs[1] = f64::INFINITY;
+            Ok(())
+        };
+        let err = transform_buildings(&mut buildings, &mut broken).unwrap_err();
+        assert!(err.contains("non-finite"), "{err}");
+    }
 }

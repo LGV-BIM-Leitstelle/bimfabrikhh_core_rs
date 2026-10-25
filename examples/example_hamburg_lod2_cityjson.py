@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from bimfabrikhh_core_rs import cityjson_to_ifc, parse_cityjson_text
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 from bimfabrikhh_core_rs.attribute_mapping import specs
 
@@ -51,7 +52,7 @@ def main() -> None:
         mode="typed",
         project_name="Hamburg_LoD2_CityJSON",
         site_name="Hamburg_Site",
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         bbox_epsg=BBOX_EPSG,
         basepoint=(BBOX_EPSG[0], BBOX_EPSG[1]),
         ifc_types=hamburg_ifc_types(),

@@ -6,6 +6,8 @@ Default: TILE in hamburg_lod3.py. Set LOOP=True there for every tile.
 
 from __future__ import annotations
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
+
 from pathlib import Path
 
 from gml_tiles import convert_gml_tiles
@@ -20,7 +22,7 @@ def main() -> None:
         output=ROOT / "output",
         prefix="hamburg_lod3_blocks",
         mode="mesh",
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         loop=LOOP,
         tile=TILE,
     )

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from bimfabrikhh_core_rs import terrain_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.owner import defaults
 from bimfabrikhh_core_rs.terrain_mapping import specs
 
@@ -47,7 +48,7 @@ def _write(vertices, faces, path: Path, *, basepoint: tuple[float, float]) -> st
         vertices,
         faces,
         str(path),
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         psets=specs(),
         owner=defaults(),
         basepoint=basepoint,

@@ -2,4 +2,4 @@ mod guid;
 mod step;
 mod write;
 
-pub use write::{write_ifc_file, OwnerIdentity, WriteOptions};
+pub use write::{write_ifc_file, OwnerIdentity, ProjectedCrs, WriteOptions};

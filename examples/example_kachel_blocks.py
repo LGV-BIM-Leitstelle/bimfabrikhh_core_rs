@@ -6,6 +6,8 @@ Default: first `*.gml` in fixtures/. Set loop=True for every tile.
 
 from __future__ import annotations
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
+
 from envpaths import FIXTURES, ROOT
 from gml_tiles import convert_gml_tiles
 
@@ -16,7 +18,7 @@ def main() -> None:
         output=ROOT / "output",
         prefix="kachel_blocks",
         mode="mesh",
-        epsg=25833,
+        crs=etrs89_utm(33, vertical_datum="EPSG:7837"),
     )
 
 

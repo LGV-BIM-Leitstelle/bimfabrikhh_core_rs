@@ -27,13 +27,25 @@ pub fn parse_cityjson_str(
     building_id_filter: Option<&str>,
     bbox_epsg: Option<BboxUtm>,
 ) -> Result<Vec<ParsedBuilding>, String> {
-    let root: Value = serde_json::from_str(text).map_err(|e| format!("CityJSON: {e}"))?;
+    parse_cityjson_value(&parse_cityjson_json(text)?, building_id_filter, bbox_epsg)
+}
+
+/// The JSON tree of a CityJSON document, for [`parse_cityjson_value`].
+pub fn parse_cityjson_json(text: &str) -> Result<Value, String> {
+    serde_json::from_str(text).map_err(|e| format!("CityJSON: {e}"))
+}
+
+pub fn parse_cityjson_value(
+    root: &Value,
+    building_id_filter: Option<&str>,
+    bbox_epsg: Option<BboxUtm>,
+) -> Result<Vec<ParsedBuilding>, String> {
     if root.get("type").and_then(Value::as_str) != Some("CityJSON")
         && root.get("type").and_then(Value::as_str) != Some("CityJSONFeature")
     {
         return Err("not a CityJSON document".into());
     }
-    let verts = decode_vertices(&root)?;
+    let verts = decode_vertices(root)?;
     let objects = root
         .get("CityObjects")
         .and_then(Value::as_object)
