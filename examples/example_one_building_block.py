@@ -10,6 +10,7 @@ import time
 
 from bimfabrikhh_core_rs import gml_to_ifc, parse_gml
 from bimfabrikhh_core_rs.attribute_mapping import specs
+from bimfabrikhh_core_rs.crs import etrs89_utm
 
 from envpaths import FIXTURES, ROOT
 from logconfig import ENABLED, ifc_created, log
@@ -49,7 +50,7 @@ def main() -> None:
         mode=MODE,
         project_name="Dresden_Sachsen_LoD2",
         site_name="Dresden_Site",
-        epsg=25833,
+        crs=etrs89_utm(33, vertical_datum="EPSG:7837"),
         psets=specs(),
         progress=ENABLED,
     )

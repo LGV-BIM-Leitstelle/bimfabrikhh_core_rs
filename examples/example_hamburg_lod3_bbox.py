@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 from gml_tiles import convert_gml_crop
 from hamburg_lod3 import BBOX_EPSG, BBOX_WGS84, LOD3
@@ -21,7 +22,7 @@ def main() -> None:
         LOD3,
         ifc_path=ROOT / "output" / "hamburg_lod3_bbox.ifc",
         mode="typed",
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         bbox_epsg=BBOX_EPSG,
         ifc_types=hamburg_ifc_types(),
         project_name="Hamburg_LoD3",

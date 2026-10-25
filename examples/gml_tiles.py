@@ -117,7 +117,7 @@ def convert_gml_crop(
     *,
     ifc_path: Path,
     mode: str,
-    epsg: int,
+    crs: Mapping[str, str | None],
     bbox_epsg: tuple[float, float, float, float],
     ifc_types: Mapping[str, str] | None = None,
     site_name: str = "Hamburg_Site",
@@ -130,14 +130,14 @@ def convert_gml_crop(
         raise FileNotFoundError(f"no *.gml in {tiles} intersects bbox {bbox_epsg}")
     ifc_path.parent.mkdir(parents=True, exist_ok=True)
     log.debug(f"mode: {mode}")
-    log.debug(f"crop: EPSG:{epsg} {bbox_epsg}")
+    log.debug(f"crop: {crs['name']} {bbox_epsg}")
     log.debug(f"tiles hitting bbox: {len(paths)}")
     t0 = time.perf_counter()
     kwargs: dict = {
         "mode": mode,
         "project_name": project_name,
         "site_name": site_name,
-        "epsg": epsg,
+        "crs": crs,
         "bbox_epsg": bbox_epsg,
         "basepoint": (bbox_epsg[0], bbox_epsg[1]),
         "psets": specs(),
@@ -164,7 +164,7 @@ def convert_gml_tiles(
     output: Path,
     prefix: str,
     mode: str,
-    epsg: int,
+    crs: Mapping[str, str | None],
     ifc_types: Mapping[str, str] | None = None,
     site_name: str = "Site",
     loop: bool = False,
@@ -187,7 +187,7 @@ def convert_gml_tiles(
             "mode": mode,
             "project_name": gml.stem,
             "site_name": site_name,
-            "epsg": epsg,
+            "crs": crs,
             "psets": specs(),
             "progress": ENABLED,
         }

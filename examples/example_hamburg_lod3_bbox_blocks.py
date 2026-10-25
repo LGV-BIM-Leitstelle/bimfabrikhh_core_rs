@@ -5,6 +5,8 @@ One IfcBuildingElementProxy per building, one IFC for the crop.
 
 from __future__ import annotations
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
+
 from pathlib import Path
 
 from gml_tiles import convert_gml_crop
@@ -20,7 +22,7 @@ def main() -> None:
         LOD3,
         ifc_path=ROOT / "output" / "hamburg_lod3_bbox_blocks.ifc",
         mode="mesh",
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         bbox_epsg=BBOX_EPSG,
         project_name="Hamburg_LoD3",
     )

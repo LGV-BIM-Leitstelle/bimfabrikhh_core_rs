@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from bimfabrikhh_core_rs import trees_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.owner import defaults
 from bimfabrikhh_core_rs.tree_mapping import specs
 
@@ -91,7 +92,7 @@ def _write(path: Path, n: int, *, cols: int, detail: int) -> str:
     log.debug("output:  %s", path)
     log.debug("trees:   %d  grid=%dx%d  spacing=%.1f m", n, cols, rows, SPACING_M)
     log.debug("mesh:    crown detail=%d  trunk segments=8", detail)
-    log.debug("origin:  %s  epsg=25832  seed=%d", ORIGIN, SEED)
+    log.debug("origin:  %s  crs=EPSG:25832  seed=%d", ORIGIN, SEED)
 
     t0 = time.perf_counter()
     rng = random.Random(SEED)
@@ -111,7 +112,7 @@ def _write(path: Path, n: int, *, cols: int, detail: int) -> str:
     written = trees_to_ifc(
         trees,
         str(path),
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         psets=specs(),
         owner=defaults(),
         basepoint=(ORIGIN[0], ORIGIN[1]),

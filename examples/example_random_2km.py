@@ -27,6 +27,7 @@ from pathlib import Path
 
 from pyproj import Transformer
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 
 from envpaths import ROOT, lod1_dir, lod2_dir, lod3_dir
@@ -394,7 +395,7 @@ def main() -> None:
                     folder,
                     ifc_path=out / name,
                     mode=args.mode,
-                    epsg=EPSG,
+                    crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
                     bbox_epsg=box,
                     ifc_types=ifc_types,
                     project_name=f"random_2km_{prefix}_{i:02d}",

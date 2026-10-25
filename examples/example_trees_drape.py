@@ -21,6 +21,7 @@ import rasterio
 from scipy.spatial import cKDTree
 
 from bimfabrikhh_core_rs import trees_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.owner import defaults
 from bimfabrikhh_core_rs.tree_mapping import specs
 
@@ -126,7 +127,7 @@ def _write(trees: list[dict], path: Path, *, drape_vertices=None, drape_faces=No
     written = trees_to_ifc(
         trees,
         str(path),
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         psets=specs(),
         owner=defaults(),
         basepoint=(_BBOX[0], _BBOX[1]),

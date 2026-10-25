@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 
 from gml_tiles import convert_gml_tiles
@@ -22,7 +23,7 @@ def main() -> None:
         output=ROOT / "output",
         prefix="hamburg_lod3_entities",
         mode="mesh",
-        epsg=25832,
+        crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
         ifc_types=hamburg_ifc_types(),
         loop=LOOP,
         tile=TILE,

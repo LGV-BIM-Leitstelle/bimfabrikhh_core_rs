@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from bimfabrikhh_core_rs import cityjson_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 from bimfabrikhh_core_rs.psets import (
     Attr,
@@ -31,7 +32,7 @@ from logconfig import ENABLED, ifc_created, log
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output"
-EPSG = 25832
+CRS = etrs89_utm(32, vertical_datum="EPSG:7837")
 
 PROP = re.compile(r"IFCPROPERTYSINGLEVALUE\('([^']*)',\$,IFC\w+\(([^)]*)\)")
 PSET = re.compile(r"IFCPROPERTYSET\('[^']*',#\d+,'([^']*)'")
@@ -44,7 +45,7 @@ def convert(sources: list[str], name: str, psets=None) -> tuple[float, Path]:
         sources,
         str(out),
         mode="typed",
-        epsg=EPSG,
+        crs=CRS,
         bbox_epsg=BBOX_EPSG,
         project_name="Hamburg LoD2 pset spec",
         psets=psets,

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from bimfabrikhh_core_rs import gml_to_ifc
 from bimfabrikhh_core_rs.attribute_mapping import specs
+from bimfabrikhh_core_rs.crs import etrs89_utm
 
 from envpaths import lod1_dir
 from logconfig import ENABLED, ifc_created, log
@@ -30,7 +31,7 @@ _LOD1_TILES = (
 # Same WGS84 crop (lon/lat). Parser wants UTM — this is EPSG:4326 → 25832.
 BBOX_WGS84 = (9.9647, 53.5531, 9.9711, 53.5564)
 BBOX_EPSG = (563910.1036, 5934234.0317, 564329.0775, 5934606.9103)
-EPSG = 25832
+CRS = etrs89_utm(32, vertical_datum="EPSG:7837")
 
 
 def main() -> None:
@@ -48,7 +49,7 @@ def main() -> None:
     for p in gml_files:
         log.debug(f"  {p.name} ({p.stat().st_size / 1e6:.1f} MB)")
     log.debug(f"bbox WGS84: {BBOX_WGS84}")
-    log.debug(f"bbox EPSG:{EPSG}: {BBOX_EPSG}")
+    log.debug(f"bbox {CRS['name']}: {BBOX_EPSG}")
     log.debug("mode: mesh  (one IFC block per building, one file)")
 
     t0 = time.perf_counter()
@@ -58,7 +59,7 @@ def main() -> None:
         mode="mesh",
         project_name="Citymodel_Container",
         site_name="Hamburg_Site",
-        epsg=EPSG,
+        crs=CRS,
         bbox_epsg=BBOX_EPSG,
         basepoint=(BBOX_EPSG[0], BBOX_EPSG[1]),
         psets=specs(),

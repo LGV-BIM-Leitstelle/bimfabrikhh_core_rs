@@ -17,13 +17,14 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
+from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
 
 from envpaths import ROOT, lod1_dir, lod2_dir, lod3_dir
 from gml_tiles import convert_gml_tiles
 from logconfig import log
 
-EPSG = 25832
+CRS = etrs89_utm(32, vertical_datum="EPSG:7837")
 
 _LODS: dict[str, tuple[str, Callable[[], Path]]] = {
     "1": ("lod1", lod1_dir),
@@ -42,7 +43,7 @@ def export_lod(lod: str, *, mode: str) -> None:
         output=output,
         prefix=prefix,
         mode=mode,
-        epsg=EPSG,
+        crs=CRS,
         ifc_types=hamburg_ifc_types() if mode == "typed" else None,
         site_name="Hamburg_Site",
         loop=True,
