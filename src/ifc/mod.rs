@@ -1,3 +1,4 @@
+mod basepoint;
 mod guid;
 mod step;
 mod write;

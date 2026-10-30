@@ -4,11 +4,17 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::color::{BASEPOINT_RGB, BASEPOINT_SIZE, DEFAULT_RGB};
-use crate::types::{BuildingExport, Face, Product, ProductPart, Pset};
+use crate::color::{BASEPOINT_ARROW_RGB, BASEPOINT_RGB, BASEPOINT_SIZE, DEFAULT_RGB};
+use crate::types::{BuildingExport, Face, Product, ProductPart, PropValue, Pset};
 
+use super::basepoint::{basepoint_geometry, Mesh};
 use super::guid::ifc_gid;
 use super::step::{format_real, step_str, Ids};
+
+/// CAD layer of the Nullpunktobjekt body. Same as BIMFabrikHH `create_basepoint_quad`.
+pub const BASEPOINT_LAYER: &str = "_Projektnullpunkt";
+/// CAD layer of the Nullpunktobjekt "N" and north arrow (BIMFabrikHH `ARROW_LAYER`).
+pub const BASEPOINT_ARROW_LAYER: &str = "_Projektnullpunkt_pfeil";
 
 /// Values written into `IfcPerson` / `IfcOrganization` / `IfcApplication`.
 #[derive(Clone, Debug)]
@@ -70,6 +76,11 @@ pub struct WriteOptions {
     pub owner_history: bool,
     pub owner: OwnerIdentity,
     pub basepoint: Option<(f64, f64)>,
+    /// Nullpunktobjekt edge length in metres. Only used with `basepoint`.
+    pub basepoint_size: f64,
+    /// Property sets on the Nullpunktobjekt, written as given.
+    /// Empty writes none. Only used with `basepoint`.
+    pub basepoint_psets: Vec<Pset>,
     /// One spatial IfcBuilding; CityGML buildings are products (Python city model).
     pub city_model: bool,
     /// Hang products on `IfcSite` (no `IfcBuilding`). DGM / BIMFabrik terrain.
@@ -88,6 +99,8 @@ impl Default for WriteOptions {
             owner_history: true,
             owner: OwnerIdentity::default(),
             basepoint: None,
+            basepoint_size: BASEPOINT_SIZE,
+            basepoint_psets: Vec::new(),
             city_model: false,
             contain_in_site: false,
             progress: false,
@@ -116,6 +129,18 @@ pub fn write_ifc_file(
     Ok(())
 }
 
+fn step_value(v: &PropValue) -> String {
+    match v {
+        PropValue::Label(s) => format!("IFCLABEL({})", step_str(s)),
+        PropValue::Text(s) => format!("IFCTEXT({})", step_str(s)),
+        PropValue::Integer(i) => format!("IFCINTEGER({i})"),
+        PropValue::Real(f) => format!("IFCREAL({})", format_real(*f)),
+        PropValue::Boolean(b) => format!("IFCBOOLEAN({})", if *b { ".T." } else { ".F." }),
+        PropValue::LengthMeasure(f) => format!("IFCLENGTHMEASURE({})", format_real(*f)),
+        PropValue::AreaMeasure(f) => format!("IFCAREAMEASURE({})", format_real(*f)),
+    }
+}
+
 fn write_psets<W: Write>(
     w: &mut W,
     id: &mut Ids,
@@ -132,17 +157,11 @@ fn write_psets<W: Write>(
         let mut prop_ids = Vec::new();
         for (k, v) in &pset.properties {
             let pid = id.next();
-            let typed = if let Ok(i) = v.parse::<i64>() {
-                format!("IFCINTEGER({i})")
-            } else if let Ok(f) = v.parse::<f64>() {
-                format!("IFCREAL({})", format_real(f))
-            } else {
-                format!("IFCLABEL({})", step_str(v))
-            };
             writeln!(
                 w,
                 "#{pid}=IFCPROPERTYSINGLEVALUE({key},$,{typed},$);",
                 key = step_str(k),
+                typed = step_value(v),
             )?;
             prop_ids.push(format!("#{pid}"));
         }
@@ -164,7 +183,8 @@ fn write_psets<W: Write>(
     Ok(())
 }
 
-/// Same chain BIMFabrik uses for BricsCAD: Rendering + PresentationStyleAssignment.
+/// Same chain as the BIMFabrik ifcfactory writer: `IfcStyledItem` -> `IfcSurfaceStyle`
+/// -> `IfcSurfaceStyleShading` (BricsCAD shows it).
 fn write_item_style<W: Write>(
     w: &mut W,
     id: &mut Ids,
@@ -172,9 +192,8 @@ fn write_item_style<W: Write>(
     rgb: [f64; 3],
 ) -> std::io::Result<()> {
     let col = id.next();
-    let rendering = id.next();
+    let shading = id.next();
     let style = id.next();
-    let assign = id.next();
     let item = id.next();
     writeln!(
         w,
@@ -183,13 +202,9 @@ fn write_item_style<W: Write>(
         g = format_real(rgb[1]),
         b = format_real(rgb[2]),
     )?;
-    writeln!(
-        w,
-        "#{rendering}=IFCSURFACESTYLERENDERING(#{col},0.,$,$,$,$,$,$,.NOTDEFINED.);"
-    )?;
-    writeln!(w, "#{style}=IFCSURFACESTYLE('Style',.BOTH.,(#{rendering}));")?;
-    writeln!(w, "#{assign}=IFCPRESENTATIONSTYLEASSIGNMENT((#{style}));")?;
-    writeln!(w, "#{item}=IFCSTYLEDITEM(#{faceset},(#{assign}),$);")?;
+    writeln!(w, "#{shading}=IFCSURFACESTYLESHADING(#{col},0.);")?;
+    writeln!(w, "#{style}=IFCSURFACESTYLE('Style',.BOTH.,(#{shading}));")?;
+    writeln!(w, "#{item}=IFCSTYLEDITEM(#{faceset},(#{style}),$);")?;
     Ok(())
 }
 
@@ -359,9 +374,9 @@ fn write_ifc<W: Write>(
     let created = unix_now();
     let ohn = &opts.owner;
     let author = ohn.organization.clone();
-    // Header Implementation Guide: CoordinationView is the agreed ViewDefinition name.
-    // Ifc4ReferenceView is not in that list (HEADER_03 on many checkers).
-    writeln!(w, "FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');")?;
+    // The buildingSMART Validation Service accepts ReferenceView_V1.2 for IFC4;
+    // CoordinationView is IFC2x3 only and Ifc4ReferenceView fails HEADER_03.
+    writeln!(w, "FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');")?;
     writeln!(
         w,
         "FILE_NAME({name},{stamp},({author}),({org}),{pre},{sys},{auth});",
@@ -579,8 +594,21 @@ fn write_ifc<W: Write>(
         }
     }
 
-    if let Some((x, y)) = opts.basepoint {
-        let bp = write_basepoint(w, &mut id, sub, place, &owner, x, y, opts.styles)?;
+    if let Some(xy) = opts.basepoint {
+        let (bp, body, marks) =
+            write_basepoint(w, &mut id, sub, place, (dir_z, dir_x), &owner, xy, opts.basepoint_size, opts.styles)?;
+        write_psets(w, &mut id, &owner, bp, &opts.basepoint_psets, "basepoint")?;
+        // Always layered, independent of `cad_layer`, like the BIMFabrik Python Nullpunktobjekt.
+        layer_items
+            .entry(BASEPOINT_LAYER.into())
+            .or_insert_with(|| (Vec::new(), BASEPOINT_RGB))
+            .0
+            .push(format!("#{body}"));
+        layer_items
+            .entry(BASEPOINT_ARROW_LAYER.into())
+            .or_insert_with(|| (Vec::new(), BASEPOINT_ARROW_RGB))
+            .0
+            .extend(marks.iter().map(|m| format!("#{m}")));
         let rel = id.next();
         writeln!(
             w,
@@ -589,7 +617,7 @@ fn write_ifc<W: Write>(
         )?;
     }
 
-    if opts.cad_layer && !layer_items.is_empty() {
+    if !layer_items.is_empty() {
         for (name, (items, rgb)) in &layer_items {
             if items.is_empty() {
                 continue;
@@ -635,78 +663,101 @@ fn write_ifc<W: Write>(
     Ok(())
 }
 
-fn write_basepoint<W: Write>(
-    w: &mut W,
-    id: &mut Ids,
-    sub: u32,
-    place: u32,
-    owner: &str,
-    x: f64,
-    y: f64,
-    styles: bool,
-) -> std::io::Result<u32> {
-    // BIMFabrik star: cube corners + centre (two square pyramids). No N / arrow.
-    let s = BASEPOINT_SIZE;
-    let local = [
-        [-0.5 * s, -0.5 * s, s],
-        [0.5 * s, -0.5 * s, s],
-        [0.5 * s, 0.5 * s, s],
-        [-0.5 * s, 0.5 * s, s],
-        [-0.5 * s, -0.5 * s, -s],
-        [0.5 * s, -0.5 * s, -s],
-        [0.5 * s, 0.5 * s, -s],
-        [-0.5 * s, 0.5 * s, -s],
-        [0.0, 0.0, 0.0],
-    ];
-    let pts: [[f64; 3]; 9] = local.map(|[lx, ly, lz]| [x + lx, y + ly, lz]);
+/// One `IfcPolygonalFaceSet` of `mesh`. Faces with holes become
+/// `IfcIndexedPolygonalFaceWithVoids`.
+fn write_mesh_faceset<W: Write>(w: &mut W, id: &mut Ids, mesh: &Mesh) -> std::io::Result<u32> {
     let list = id.next();
-    let body = pts
+    let coords = mesh
+        .points
         .iter()
         .map(|p| format!("({},{},{})", format_real(p[0]), format_real(p[1]), format_real(p[2])))
         .collect::<Vec<_>>()
         .join(",");
-    writeln!(w, "#{list}=IFCCARTESIANPOINTLIST3D(({body}));")?;
-    // 1-based IFC indices. Top/bottom quads + 8 triangles to the centre.
-    let face_idx: &[&[i32]] = &[
-        &[1, 2, 3, 4],
-        &[5, 6, 7, 8],
-        &[1, 9, 2],
-        &[2, 9, 3],
-        &[3, 9, 4],
-        &[4, 9, 1],
-        &[6, 9, 5],
-        &[7, 9, 6],
-        &[8, 9, 7],
-        &[5, 9, 8],
-    ];
-    let mut faces = Vec::new();
-    for idx in face_idx {
+    writeln!(w, "#{list}=IFCCARTESIANPOINTLIST3D(({coords}));")?;
+    // IFC indices are 1-based.
+    let ring = |r: &[usize]| r.iter().map(|i| (i + 1).to_string()).collect::<Vec<_>>().join(",");
+    let mut faces = Vec::with_capacity(mesh.faces.len());
+    for face in &mesh.faces {
         let fid = id.next();
-        let coords = idx.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-        writeln!(w, "#{fid}=IFCINDEXEDPOLYGONALFACE(({coords}));")?;
+        if face.voids.is_empty() {
+            writeln!(w, "#{fid}=IFCINDEXEDPOLYGONALFACE(({}));", ring(&face.outer))?;
+        } else {
+            let voids = face.voids.iter().map(|v| format!("({})", ring(v))).collect::<Vec<_>>().join(",");
+            writeln!(w, "#{fid}=IFCINDEXEDPOLYGONALFACEWITHVOIDS(({}),({voids}));", ring(&face.outer))?;
+        }
         faces.push(format!("#{fid}"));
     }
     let faceset = id.next();
+    writeln!(w, "#{faceset}=IFCPOLYGONALFACESET(#{list},$,({}),$);", faces.join(","))?;
+    Ok(faceset)
+}
+
+/// The Nullpunktobjekt, shaped like BIMFabrikHH `create_basepoint_quad`:
+/// placed at `(x, y, 0)` relative to `site_place`, with local geometry.
+/// Returns the product, the body faceset and the "N" / arrow facesets.
+#[allow(clippy::too_many_arguments)]
+fn write_basepoint<W: Write>(
+    w: &mut W,
+    id: &mut Ids,
+    sub: u32,
+    site_place: u32,
+    (dir_z, dir_x): (u32, u32),
+    owner: &str,
+    (x, y): (f64, f64),
+    size: f64,
+    styles: bool,
+) -> std::io::Result<(u32, u32, Vec<u32>)> {
+    let geometry = basepoint_geometry(size);
+    let (pt, axis, place) = (id.next(), id.next(), id.next());
+    writeln!(w, "#{pt}=IFCCARTESIANPOINT(({},{},0.));", format_real(x), format_real(y))?;
+    writeln!(w, "#{axis}=IFCAXIS2PLACEMENT3D(#{pt},#{dir_z},#{dir_x});")?;
+    writeln!(w, "#{place}=IFCLOCALPLACEMENT(#{site_place},#{axis});")?;
+    let body = write_mesh_faceset(w, id, &geometry.body)?;
+    if styles {
+        write_item_style(w, id, body, BASEPOINT_RGB)?;
+    }
+    let mut marks = Vec::with_capacity(geometry.marks.len());
+    for mark in &geometry.marks {
+        let faceset = write_mesh_faceset(w, id, mark)?;
+        if styles {
+            write_item_style(w, id, faceset, BASEPOINT_ARROW_RGB)?;
+        }
+        marks.push(faceset);
+    }
     let shape = id.next();
     let pds = id.next();
     let prod = id.next();
-    writeln!(w, "#{faceset}=IFCPOLYGONALFACESET(#{list},$,({}),$);", faces.join(","))?;
-    if styles {
-        write_item_style(w, id, faceset, BASEPOINT_RGB)?;
-    }
-    writeln!(w, "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',(#{faceset}));")?;
+    let items = std::iter::once(body)
+        .chain(marks.iter().copied())
+        .map(|i| format!("#{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    writeln!(w, "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',({items}));")?;
     writeln!(w, "#{pds}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}));")?;
     writeln!(
         w,
         "#{prod}=IFCBUILDINGELEMENTPROXY({gid},{owner}'Nullpunktobjekt',$,$,#{place},#{pds},$,$);",
         gid = step_str(&ifc_gid("basepoint")),
     )?;
-    Ok(prod)
+    Ok((prod, body, marks))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn item_styles_use_surface_style_shading() {
+        let text = basepoint_text(Vec::new());
+        assert!(text.contains("IFCSURFACESTYLESHADING("));
+        assert!(!text.contains("IFCSURFACESTYLERENDERING("));
+        assert!(!text.contains("IFCPRESENTATIONSTYLEASSIGNMENT("));
+    }
+
+    #[test]
+    fn header_declares_the_ifc4_reference_view() {
+        assert!(step_text(None).contains("FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');"));
+    }
 
     #[test]
     fn unix_epoch_formats_as_iso() {
@@ -758,5 +809,100 @@ mod tests {
         assert!(!text.contains("IFCPROJECTEDCRS"));
         assert!(!text.contains("IFCMAPCONVERSION"));
         assert!(text.contains("IFCSITE("));
+    }
+
+    fn basepoint_text(basepoint_psets: Vec<Pset>) -> String {
+        let opts = WriteOptions {
+            basepoint: Some((565000.0, 5934000.0)),
+            basepoint_psets,
+            ..WriteOptions::default()
+        };
+        let mut out = Vec::new();
+        write_ifc(&mut out, &[], &opts, "test.ifc").unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn basepoint_psets_keep_their_types() {
+        let text = basepoint_text(vec![Pset::new(
+            "Pset_Modellinformation",
+            vec![
+                ("_ArtTeilmodell".into(), PropValue::label("Gelaende")),
+                ("_Projektnummer".into(), PropValue::label("12345")),
+            ],
+        )]);
+        assert!(text.contains("IFCPROPERTYSINGLEVALUE('_ArtTeilmodell',$,IFCLABEL('Gelaende'),$);"));
+        assert!(text.contains("IFCPROPERTYSINGLEVALUE('_Projektnummer',$,IFCLABEL('12345'),$);"));
+        assert!(text.contains("'Pset_Modellinformation',$,("));
+    }
+
+    #[test]
+    fn values_are_written_with_the_declared_type() {
+        let cases = [
+            (PropValue::Text("lang".into()), "IFCTEXT('lang')"),
+            (PropValue::Integer(300), "IFCINTEGER(300)"),
+            (PropValue::Real(3.0), "IFCREAL(3.)"),
+            (PropValue::Boolean(false), "IFCBOOLEAN(.F.)"),
+            (PropValue::LengthMeasure(3.7), "IFCLENGTHMEASURE(3.7)"),
+            (PropValue::AreaMeasure(12.5), "IFCAREAMEASURE(12.5)"),
+        ];
+        for (value, step) in cases {
+            assert_eq!(step_value(&value), step);
+        }
+    }
+
+    #[test]
+    fn basepoint_without_psets_writes_none() {
+        let text = basepoint_text(Vec::new());
+        assert!(text.contains("'Nullpunktobjekt'"));
+        assert!(!text.contains("IFCPROPERTYSET("));
+    }
+
+    #[test]
+    fn basepoint_is_on_its_layer_without_cad_layer() {
+        let text = basepoint_text(Vec::new());
+        assert!(text.contains("IFCPRESENTATIONLAYERWITHSTYLE('_Projektnullpunkt',$,(#"));
+    }
+
+    #[test]
+    fn basepoint_has_n_and_arrow_on_their_layer() {
+        let text = basepoint_text(Vec::new());
+        assert_eq!(text.matches("IFCINDEXEDPOLYGONALFACEWITHVOIDS(").count(), 2);
+        assert_eq!(text.matches("IFCPOLYGONALFACESET(").count(), 4);
+        let arrow_layer = text
+            .lines()
+            .find(|l| l.contains("IFCPRESENTATIONLAYERWITHSTYLE('_Projektnullpunkt_pfeil'"))
+            .expect("arrow layer");
+        assert_eq!(arrow_layer.matches('#').count(), 1 + 3 + 1, "{arrow_layer}");
+        let grey = format_real(64.0 / 255.0);
+        assert!(text.contains(&format!("IFCCOLOURRGB($,{grey},{grey},{grey});")));
+    }
+
+    #[test]
+    fn basepoint_size_scales_the_star() {
+        let opts = WriteOptions {
+            basepoint: Some((0.0, 0.0)),
+            basepoint_size: 1.0,
+            ..WriteOptions::default()
+        };
+        let mut out = Vec::new();
+        write_ifc(&mut out, &[], &opts, "test.ifc").unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("IFCCARTESIANPOINTLIST3D(((-0.5,-0.5,1.),"));
+    }
+
+    #[test]
+    fn basepoint_is_placed_at_its_xy_with_local_geometry() {
+        let opts = WriteOptions {
+            basepoint: Some((565000.0, 5933500.0)),
+            basepoint_size: 1.0,
+            ..WriteOptions::default()
+        };
+        let mut out = Vec::new();
+        write_ifc(&mut out, &[], &opts, "test.ifc").unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("IFCCARTESIANPOINT((565000.,5933500.,0.));"));
+        assert!(text.contains("IFCCARTESIANPOINTLIST3D(((-0.5,-0.5,1.),"));
+        assert!(!text.contains("IFCCARTESIANPOINTLIST3D(((565"));
     }
 }

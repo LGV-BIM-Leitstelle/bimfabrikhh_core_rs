@@ -4,7 +4,7 @@ Fetches Hamburg LoD2 CityJSON in memory (no page files).
 
 Three points this demonstrates:
   1. Omit `psets` and the IFC has no property sets.
-  2. Pass `hamburg_defaults()` if you want the Hamburg convention.
+  2. Pass `attribute_mapping.specs()` if you want the Hamburg convention.
   3. A spec can be edited freely -- renamed properties, own catalogue, extra
      attributes, different number formatting.
 """
@@ -17,15 +17,10 @@ from collections import Counter
 from pathlib import Path
 
 from bimfabrikhh_core_rs import cityjson_to_ifc
+from bimfabrikhh_core_rs.attribute_mapping import specs as hamburg_specs
 from bimfabrikhh_core_rs.crs import etrs89_utm
 from bimfabrikhh_core_rs.ifc_types import hamburg_ifc_types
-from bimfabrikhh_core_rs.psets import (
-    Attr,
-    Const,
-    PsetSpec,
-    Quantity,
-    hamburg_defaults,
-)
+from bimfabrikhh_core_rs.psets import Attr, Const, PsetSpec, Quantity
 
 from hamburg_lod2 import BBOX_EPSG, fetch_cityjson_pages
 from logconfig import ENABLED, ifc_created, log
@@ -102,7 +97,7 @@ def main() -> None:
     log.debug(f"{len(sources)} CityJSON page(s) in memory\n")
 
     t_none, f_none = convert(sources, "pset_none.ifc")
-    t_hh, f_hh = convert(sources, "pset_hamburg.ifc", psets=hamburg_defaults())
+    t_hh, f_hh = convert(sources, "pset_hamburg.ifc", psets=hamburg_specs())
     t_custom, f_custom = convert(sources, "pset_spec_custom.ifc", psets=custom_specs())
 
     p_none, s_none = fingerprint(f_none)
@@ -112,7 +107,7 @@ def main() -> None:
     log.debug("1) omit psets: no property sets")
     log.debug(f"   no psets     {t_none * 1000:7.0f} ms   {sum(p_none.values()):6} properties  {dict(s_none)}")
 
-    log.debug("\n2) pass hamburg_defaults() explicitly")
+    log.debug("\n2) pass attribute_mapping.specs() explicitly")
     log.debug(f"   hamburg      {t_hh * 1000:7.0f} ms   {sum(p_hh.values()):6} properties  {dict(s_hh)}")
 
     log.debug("\n3) a custom convention")

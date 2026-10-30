@@ -25,8 +25,8 @@ def objektinformation() -> PsetSpec:
             "_IDEbene1": Const("Gelaende"),
             "_IDEbene2": Const("Erdoberflaeche"),
             "_IDEbene3": Const("Erdoberflaeche"),
-            "_LoG": Const("300"),
-            "_LoI": Const("100"),
+            "_LoG": Const("300", ifc_type="IfcInteger"),
+            "_LoI": Const("100", ifc_type="IfcInteger"),
         },
     )
 

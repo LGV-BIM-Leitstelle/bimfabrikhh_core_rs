@@ -32,16 +32,104 @@ pub enum Face {
     WithVoids { outer: Vec<u32>, inners: Vec<Vec<u32>> },
 }
 
+/// IFC type of a property value. The caller declares it; Rust never guesses it
+/// from the text, so a property has the same type on every object.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ValueType {
+    #[default]
+    Label,
+    Text,
+    Integer,
+    Real,
+    Boolean,
+    LengthMeasure,
+    AreaMeasure,
+}
+
+impl ValueType {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "IfcLabel" => Ok(ValueType::Label),
+            "IfcText" => Ok(ValueType::Text),
+            "IfcInteger" => Ok(ValueType::Integer),
+            "IfcReal" => Ok(ValueType::Real),
+            "IfcBoolean" => Ok(ValueType::Boolean),
+            "IfcLengthMeasure" => Ok(ValueType::LengthMeasure),
+            "IfcAreaMeasure" => Ok(ValueType::AreaMeasure),
+            other => Err(format!(
+                "unknown value type '{other}'; expected IfcLabel, IfcText, IfcInteger, IfcReal, \
+                 IfcBoolean, IfcLengthMeasure or IfcAreaMeasure"
+            )),
+        }
+    }
+}
+
+/// A property value with its IFC type. Measures are in metre / square metre,
+/// the units the writer declares.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PropValue {
+    Label(String),
+    Text(String),
+    Integer(i64),
+    Real(f64),
+    Boolean(bool),
+    LengthMeasure(f64),
+    AreaMeasure(f64),
+}
+
+impl PropValue {
+    pub fn label(value: impl Into<String>) -> Self {
+        PropValue::Label(value.into())
+    }
+
+    /// `text` as a value of type `ty`, or an error if it does not fit.
+    pub fn parse(ty: ValueType, text: &str) -> Result<Self, String> {
+        let number = || {
+            text.trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| format!("'{text}' is not a number"))
+        };
+        Ok(match ty {
+            ValueType::Label => PropValue::Label(text.to_string()),
+            ValueType::Text => PropValue::Text(text.to_string()),
+            ValueType::Integer => PropValue::Integer(
+                text.trim().parse().map_err(|_| format!("'{text}' is not an integer"))?,
+            ),
+            ValueType::Real => PropValue::Real(number()?),
+            ValueType::LengthMeasure => PropValue::LengthMeasure(number()?),
+            ValueType::AreaMeasure => PropValue::AreaMeasure(number()?),
+            ValueType::Boolean => match text.trim().to_ascii_lowercase().as_str() {
+                "true" => PropValue::Boolean(true),
+                "false" => PropValue::Boolean(false),
+                _ => return Err(format!("'{text}' is not a boolean")),
+            },
+        })
+    }
+}
+
+impl std::fmt::Display for PropValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PropValue::Label(s) | PropValue::Text(s) => f.write_str(s),
+            PropValue::Integer(i) => write!(f, "{i}"),
+            PropValue::Boolean(b) => write!(f, "{b}"),
+            PropValue::Real(v) | PropValue::LengthMeasure(v) | PropValue::AreaMeasure(v) => write!(f, "{v}"),
+        }
+    }
+}
+
 /// One property set: its name plus properties in a stable, caller-defined
 /// order, which is what makes the written IFC byte-reproducible.
 #[derive(Clone, Debug)]
 pub struct Pset {
     pub name: String,
-    pub properties: Vec<(String, String)>,
+    pub properties: Vec<(String, PropValue)>,
 }
 
 impl Pset {
-    pub fn new(name: impl Into<String>, properties: Vec<(String, String)>) -> Self {
+    pub fn new(name: impl Into<String>, properties: Vec<(String, PropValue)>) -> Self {
         Self { name: name.into(), properties }
     }
 

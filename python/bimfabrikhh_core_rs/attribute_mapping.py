@@ -20,13 +20,13 @@ def objektinformation(
             "_IDEbene1": Const(id_ebene),
             "_IDEbene2": Const(id_ebene),
             "_IDEbene3": Const(id_ebene),
-            "_LoI": Const(loi),
+            "_LoI": Const(loi, ifc_type="IfcInteger"),
             "_Bemerkung": Const(bemerkung),
             "_StadtmodellLoD": Attr("lod"),
             # CityGML / CityJSON building (typical LoD1–2)
             "_FunktionGebaeude": Attr("function", catalog="funktion"),
-            "_RelativeHoehe": Attr("measured_height"),
-            "_AnzahlObergeschoss": Attr("storeys_above_ground"),
+            "_RelativeHoehe": Attr("measured_height", ifc_type="IfcReal"),
+            "_AnzahlObergeschoss": Attr("storeys_above_ground", ifc_type="IfcInteger"),
             "_Dachform": Attr("roof_type", catalog="dachform"),
             "_Grundrissaktualitaet": Attr("extra:Grundrissaktualitaet"),
             # Hamburg LoD3 CityGRID generics

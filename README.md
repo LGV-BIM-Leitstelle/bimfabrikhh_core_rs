@@ -63,7 +63,7 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 ### Optional helpers (`bimfabrikhh_core_rs[psets]`)
 
 - **`PsetSpec` / `Attr` / `Const` / `Quantity`** — declarative property-set rules
-- **`hamburg_defaults()` / `attribute_mapping.specs()` / `tree_mapping.specs()` / `terrain_mapping.specs()`** — Hamburg property names
+- **`attribute_mapping.specs()` / `tree_mapping.specs()` / `terrain_mapping.specs()`** — Hamburg property names (city model / trees / terrain)
 - **`hamburg_ifc_types()` / `IfcTypeMap`** — surface type → IFC entity
 - **`OwnerIdentity` / `owner.defaults()`** — FILE_NAME + `IfcPerson` / `IfcOrganization` / `IfcApplication`
 
@@ -119,6 +119,15 @@ cityjson_to_ifc(
 
 `mode` is `"typed"` or `"mesh"`. Omit `ifc_types` and every product is `IfcBuildingElementProxy`. Omit `psets` and the
 IFC has no property sets. `bbox_epsg` is `(min_x, min_y, max_x, max_y)` in the CRS of the source file.
+
+With `basepoint`, every writer adds the Nullpunktobjekt, shaped like the BIMFabrikHH Python one: a star body with an
+"N" and a north arrow on top and an arrow below. The body is on the `_Projektnullpunkt` layer (red), "N" and arrows on
+`_Projektnullpunkt_pfeil` (dark grey); all four are `IfcPolygonalFaceSet` meshes, always layered, independent of
+`cad_layer`. The object is placed at `basepoint` (`(x, y, 0)`, relative to the site), where the pyramids meet; its
+geometry is local. `basepoint_size` (optional, all writers, default 8.0) is its edge length in metres; BIMFabrikHH uses
+1.0 for trees, 5.0 for terrain and 8.0 for city models. `basepoint_psets` (optional, all writers) are its property sets
+as `{pset_name: {property: value}}`, typed like any raw pset (see Property sets). The caller prepares them
+(BIMFabrikHH_core `basepoint_pset_values`); omit them and the Nullpunktobjekt has none.
 
 Rust has no PROJ. To write the buildings in another CRS, pass `transform`: any callable `transform(xs, ys) -> (xs, ys)`,
 e.g. pyproj's `Transformer.transform`. It is called once with the x/y of all kept buildings (after the `bbox_epsg`
@@ -224,7 +233,7 @@ surface = PsetSpec(
         name="BIMFabrikHH_Quantities",
         scope="surface",
         properties={
-                "GrossArea": Quantity("area", decimals=4),
+                "GrossArea": Quantity("area", decimals=4, ifc_type="IfcAreaMeasure"),
                 "SurfaceType": Quantity("surface_type"),
         },
 )
@@ -239,6 +248,15 @@ cityjson_to_ifc("page.city.json", "out.ifc", psets=[building, surface])
 | `Quantity(key, decimals=…)`                   | surface geometry (`area`, `perimeter`, `tilt`, `surface_type`)                                                                    |
 
 A missing source field omits that property. A plain dict works without pydantic.
+
+Every value also takes `ifc_type`: `IfcLabel` (the default), `IfcText`, `IfcInteger`, `IfcReal`, `IfcBoolean`,
+`IfcLengthMeasure` or `IfcAreaMeasure` (metre / m²). Rust writes exactly that type and never guesses it from the text, so
+a property has one type on every object. A `Const` that does not fit is an error; an `Attr` or `Quantity` value that does
+not fit is omitted like a missing one.
+
+Raw psets (`{pset_name: {property: value}}` on products, terrain parts and `basepoint_psets`) are typed by the Python
+value, as ifcopenshell does: `bool` → `IfcBoolean`, `int` → `IfcInteger`, `float` → `IfcReal`, anything else its `str()`
+as `IfcLabel`. `{"ifc_type": "IfcLengthMeasure", "value": 3.7}` declares the type explicitly.
 
 ## Other options
 
@@ -256,8 +274,12 @@ cityjson_to_ifc(
 )
 ```
 
-Default colours match BIMFabrikHH: roofs red, everything else yellow. `styles=False` writes no colour. Owner history
+Default colours match BIMFabrikHH: roofs red, everything else yellow. Colours are written as BIMFabrikHH writes them:
+`IfcStyledItem` → `IfcSurfaceStyle` → `IfcSurfaceStyleShading`, opaque. `styles=False` writes no colour. Owner history
 FILE_NAME author defaults to BIM-Leitstelle, LGV Hamburg; `owner_history=False` skips IfcOwnerHistory.
+
+The header declares `ViewDefinition [ReferenceView_V1.2]`, the IFC4 view the buildingSMART Validation Service accepts.
+Reals are written with up to six decimals (1 µm in metres).
 
 ## Examples
 

@@ -12,7 +12,7 @@ use crate::parse::parse_gml_file;
 use crate::srs::{cityjson_declared_crs, gml_declared_crs};
 use crate::types::ParsedBuilding;
 use convert::{
-    basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, crs_from_py, gml_paths_from_py,
+    basepoint_psets_from_py, basepoint_size_from_py, basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, crs_from_py, gml_paths_from_py,
     ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py, terrain_from_py,
     terrain_parts_from_py, trees_from_py, xy_transform_from_py, xyz_list_from_py, faces_from_py,
 };
@@ -53,6 +53,8 @@ fn export_options(
     colors: Option<&Bound<'_, PyAny>>,
     owner: Option<&Bound<'_, PyAny>>,
     progress: bool,
+    basepoint_psets: Option<&Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<ExportOptions> {
     Ok(ExportOptions {
         mode: mode.into(),
@@ -64,6 +66,8 @@ fn export_options(
         owner_history,
         owner: owner_from_py(owner)?,
         basepoint: basepoint_xy(basepoint)?,
+        basepoint_size: basepoint_size_from_py(basepoint_size)?,
+        basepoint_psets: basepoint_psets_from_py(basepoint_psets)?,
         psets: pset_specs_from_py(psets)?,
         ifc_types: ifc_types_from_py(ifc_types)?,
         colors: colors_from_py(colors)?,
@@ -123,7 +127,7 @@ fn parse_cityjson_text(text: &str, building_id_filter: Option<&str>, bbox_epsg: 
 
 /// Write IFC4 STEP from a list of product dicts.
 #[pyfunction]
-#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", crs=None, styles=true, cad_layer=false, owner_history=true, basepoint=None, owner=None, progress=false))]
+#[pyo3(signature = (products, path, project_name="bimfabrikhh_core_rs", site_name="Site", crs=None, styles=true, cad_layer=false, owner_history=true, basepoint=None, owner=None, progress=false, basepoint_psets=None, basepoint_size=None))]
 #[allow(clippy::too_many_arguments)]
 fn write_ifc(
     products: Bound<'_, PyList>,
@@ -137,6 +141,8 @@ fn write_ifc(
     basepoint: Option<Bound<'_, PyTuple>>,
     owner: Option<Bound<'_, PyAny>>,
     progress: bool,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<String> {
     let parsed = products_from_py(&products)?;
     let opts = export_options(
@@ -153,6 +159,8 @@ fn write_ifc(
         None,
         owner.as_ref(),
         progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
     )?;
     api::products_to_ifc(parsed, path, &opts).map_err(PyValueError::new_err)
 }
@@ -175,7 +183,7 @@ fn write_ifc(
 /// (`bimfabrikhh_core_rs.owner.OwnerIdentity` or a dict). Omit it and the Rust default
 /// is used. `owner_history=false` writes no owner-history block.
 #[pyfunction]
-#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", crs=None, styles=true, cad_layer=false, owner_history=true, bbox_epsg=None, transform=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
+#[pyo3(signature = (gml_path, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", crs=None, styles=true, cad_layer=false, owner_history=true, bbox_epsg=None, transform=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false, basepoint_psets=None, basepoint_size=None))]
 #[allow(clippy::too_many_arguments)]
 fn gml_to_ifc(
     gml_path: Bound<'_, PyAny>,
@@ -196,6 +204,8 @@ fn gml_to_ifc(
     colors: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
     progress: bool,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<String> {
     let paths = gml_paths_from_py(&gml_path)?;
     let opts = export_options(
@@ -212,6 +222,8 @@ fn gml_to_ifc(
         colors.as_ref(),
         owner.as_ref(),
         progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
     )?;
     let mut transform = transform.as_ref().map(xy_transform_from_py);
     api::gml_to_ifc(&paths, ifc_path, building_id_filter, bbox_epsg, transform.as_mut().map(|f| f as _), &opts)
@@ -225,7 +237,7 @@ fn gml_to_ifc(
 /// `ifc_types` maps surface types to IFC entities. Omit it and every product is
 /// `IfcBuildingElementProxy`.
 #[pyfunction]
-#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", crs=None, styles=true, cad_layer=false, owner_history=true, bbox_epsg=None, transform=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false))]
+#[pyo3(signature = (source, ifc_path, building_id_filter=None, mode="typed", project_name="bimfabrikhh_core_rs", site_name="Site", crs=None, styles=true, cad_layer=false, owner_history=true, bbox_epsg=None, transform=None, basepoint=None, psets=None, ifc_types=None, colors=None, owner=None, progress=false, basepoint_psets=None, basepoint_size=None))]
 #[allow(clippy::too_many_arguments)]
 fn cityjson_to_ifc(
     source: Bound<'_, PyAny>,
@@ -246,6 +258,8 @@ fn cityjson_to_ifc(
     colors: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
     progress: bool,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<String> {
     let src = cityjson_source_from_py(&source)?;
     let opts = export_options(
@@ -262,6 +276,8 @@ fn cityjson_to_ifc(
         colors.as_ref(),
         owner.as_ref(),
         progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
     )?;
     let mut transform = transform.as_ref().map(xy_transform_from_py);
     api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, transform.as_mut().map(|f| f as _), &opts)
@@ -287,7 +303,7 @@ fn cityjson_to_ifc(
 /// Without faces it uses the nearest vertex. Omit both and rust does not
 /// touch height.
 #[pyfunction]
-#[pyo3(signature = (trees, ifc_path, project_name="Trees_Generic_Project", site_name="Trees_Generic_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false, drape_vertices=None, drape_faces=None))]
+#[pyo3(signature = (trees, ifc_path, project_name="Trees_Generic_Project", site_name="Trees_Generic_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false, drape_vertices=None, drape_faces=None, basepoint_psets=None, basepoint_size=None))]
 #[allow(clippy::too_many_arguments)]
 fn trees_to_ifc(
     trees: Bound<'_, PyList>,
@@ -304,6 +320,8 @@ fn trees_to_ifc(
     progress: bool,
     drape_vertices: Option<Bound<'_, PyAny>>,
     drape_faces: Option<Bound<'_, PyAny>>,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<String> {
     let parsed = trees_from_py(&trees)?;
     let drape = match drape_vertices {
@@ -328,6 +346,8 @@ fn trees_to_ifc(
         None,
         owner.as_ref(),
         progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
     )?;
     api::trees_to_ifc(&parsed, ifc_path, &opts, drape.as_deref(), faces.as_deref()).map_err(PyValueError::new_err)
 }
@@ -339,7 +359,7 @@ fn trees_to_ifc(
 /// ``psets`` takes ``PsetSpec`` objects (or dicts). Omit it and no property
 /// sets are written.
 #[pyfunction]
-#[pyo3(signature = (vertices, faces, ifc_path, name="DGM", project_name="DGM", site_name="Hamburg_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, color=None, layer="_BIM_DGM_Gelaende", attributes=None, progress=false))]
+#[pyo3(signature = (vertices, faces, ifc_path, name="DGM", project_name="DGM", site_name="Hamburg_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, color=None, layer="_BIM_DGM_Gelaende", attributes=None, progress=false, basepoint_psets=None, basepoint_size=None))]
 #[allow(clippy::too_many_arguments)]
 fn terrain_to_ifc(
     vertices: Bound<'_, PyAny>,
@@ -359,6 +379,8 @@ fn terrain_to_ifc(
     layer: &str,
     attributes: Option<Bound<'_, PyAny>>,
     progress: bool,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<String> {
     let mesh = terrain_from_py(
         &vertices,
@@ -382,6 +404,8 @@ fn terrain_to_ifc(
         None,
         owner.as_ref(),
         progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
     )?;
     api::terrain_to_ifc(&mesh, ifc_path, &opts).map_err(PyValueError::new_err)
 }
@@ -397,7 +421,7 @@ fn terrain_to_ifc(
 /// ``psets`` here (like ``terrain_to_ifc``) is optional ``PsetSpec`` templates
 /// applied to every part on top of its own concrete psets.
 #[pyfunction]
-#[pyo3(signature = (parts, ifc_path, project_name="DGM", site_name="Hamburg_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false))]
+#[pyo3(signature = (parts, ifc_path, project_name="DGM", site_name="Hamburg_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, psets=None, owner=None, progress=false, basepoint_psets=None, basepoint_size=None))]
 #[allow(clippy::too_many_arguments)]
 fn terrain_parts_to_ifc(
     parts: Bound<'_, PyList>,
@@ -412,6 +436,8 @@ fn terrain_parts_to_ifc(
     psets: Option<Bound<'_, PyAny>>,
     owner: Option<Bound<'_, PyAny>>,
     progress: bool,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
 ) -> PyResult<String> {
     let parsed = terrain_parts_from_py(&parts)?;
     let opts = export_options(
@@ -428,6 +454,8 @@ fn terrain_parts_to_ifc(
         None,
         owner.as_ref(),
         progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
     )?;
     api::terrain_parts_to_ifc(&parsed, ifc_path, &opts).map_err(PyValueError::new_err)
 }

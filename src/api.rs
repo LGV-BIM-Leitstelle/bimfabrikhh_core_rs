@@ -19,7 +19,7 @@ use crate::psetspec::{self, PsetSpec, Scope};
 use crate::srs::{cityjson_declared_crs, common_declared_crs, gml_declared_crs, reconcile_crs, DeclaredCrs};
 use crate::terrain::{elevation_ok, terrain_attr_map, terrain_to_product, TerrainInput};
 use crate::tree::{drape_trees, tree_attr_map, trees_to_products, TreeInput};
-use crate::types::{upsert_pset, BuildingExport, Face, ParsedBuilding, Product};
+use crate::types::{upsert_pset, BuildingExport, Face, ParsedBuilding, Product, Pset};
 
 pub fn is_mesh(mode: &str) -> bool {
     mode.eq_ignore_ascii_case("mesh")
@@ -38,6 +38,10 @@ pub struct ExportOptions {
     pub owner_history: bool,
     pub owner: OwnerIdentity,
     pub basepoint: Option<(f64, f64)>,
+    /// Nullpunktobjekt edge length in metres.
+    pub basepoint_size: f64,
+    /// Concrete property sets on the Nullpunktobjekt. Empty writes none.
+    pub basepoint_psets: Vec<Pset>,
     /// Empty means the IFC is written without property sets.
     pub psets: Vec<PsetSpec>,
     /// Empty means every product is `IfcBuildingElementProxy`.
@@ -69,6 +73,8 @@ impl ExportOptions {
             owner_history: self.owner_history,
             owner: self.owner.clone(),
             basepoint: self.basepoint,
+            basepoint_size: self.basepoint_size,
+            basepoint_psets: self.basepoint_psets.clone(),
             city_model: is_mesh(&self.mode),
             contain_in_site: false,
             progress: self.progress,

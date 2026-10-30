@@ -4,15 +4,15 @@ use std::collections::HashMap;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
+use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyList, PyTuple};
 
 use crate::api::CityJsonSource;
-use crate::color::{Colors, CROWN_RGB, TERRAIN_RGB, TRUNK_RGB};
+use crate::color::{Colors, BASEPOINT_SIZE, CROWN_RGB, TERRAIN_RGB, TRUNK_RGB};
 use crate::ifc::{OwnerIdentity, ProjectedCrs};
 use crate::psetspec::{AttrKey, Catalog, PsetSpec, QtyKey, Scope, Value};
 use crate::terrain::{TerrainInput, TERRAIN_LAYER};
 use crate::tree::TreeInput;
-use crate::types::{upsert_pset, Face, ParsedBuilding, Product, Pset};
+use crate::types::{upsert_pset, Face, ParsedBuilding, Product, PropValue, Pset, ValueType};
 
 pub fn building_to_py(py: Python<'_>, b: &ParsedBuilding) -> PyResult<PyObject> {
     let d = PyDict::new(py);
@@ -296,11 +296,57 @@ fn psets_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Pset>> {
         let props = as_dict(&props, "a pset")?;
         let mut properties = Vec::with_capacity(props.len());
         for (key, value) in props.iter() {
-            properties.push((key.extract()?, any_to_string(&value)?));
+            let key: String = key.extract()?;
+            let value = prop_value_from_py(&value)
+                .map_err(|e| PyValueError::new_err(format!("{name}.{key}: {e}")))?;
+            properties.push((key, value));
         }
         upsert_pset(&mut out, Pset::new(name, properties));
     }
     Ok(out)
+}
+
+/// A raw property value is typed by its Python type, as ifcopenshell does:
+/// `bool` → IfcBoolean, `int` → IfcInteger, `float` → IfcReal, anything else
+/// its `str()` as IfcLabel. `{"ifc_type": ..., "value": ...}` declares the type
+/// explicitly (measures, IfcText).
+fn prop_value_from_py(v: &Bound<'_, PyAny>) -> PyResult<PropValue> {
+    if let Ok(d) = v.downcast::<PyDict>() {
+        let ty = ValueType::parse(&dict_req::<String>(d, "ifc_type")?).map_err(err)?;
+        return PropValue::parse(ty, &any_to_string(&req(d, "value")?)?).map_err(err);
+    }
+    if v.is_instance_of::<PyBool>() {
+        return Ok(PropValue::Boolean(v.extract()?));
+    }
+    if v.is_instance_of::<PyInt>() {
+        return Ok(PropValue::Integer(v.extract()?));
+    }
+    if v.is_instance_of::<PyFloat>() {
+        let f: f64 = v.extract()?;
+        if !f.is_finite() {
+            return Err(PyValueError::new_err(format!("{f} is not a finite number")));
+        }
+        return Ok(PropValue::Real(f));
+    }
+    Ok(PropValue::label(any_to_string(v)?))
+}
+
+/// Nullpunktobjekt edge length in metres; ``None`` is [`BASEPOINT_SIZE`].
+pub fn basepoint_size_from_py(size: Option<f64>) -> PyResult<f64> {
+    match size {
+        None => Ok(BASEPOINT_SIZE),
+        Some(s) if s.is_finite() && s > 0.0 => Ok(s),
+        Some(s) => Err(PyValueError::new_err(format!("basepoint_size must be > 0, got {s}"))),
+    }
+}
+
+/// Nullpunktobjekt psets ``{pset_name: {property: value}}`` as prepared by the
+/// caller; ``None`` means none.
+pub fn basepoint_psets_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<Pset>> {
+    match obj {
+        Some(v) if !v.is_none() => psets_from_py(v),
+        _ => Ok(Vec::new()),
+    }
 }
 
 pub fn trees_from_py(trees: &Bound<'_, PyList>) -> PyResult<Vec<TreeInput>> {
@@ -551,9 +597,16 @@ fn catalog_from_py(v: Option<Bound<'_, PyAny>>) -> PyResult<Option<Catalog>> {
 
 fn value_from_py(d: &Bound<'_, PyDict>) -> PyResult<Value> {
     let kind: String = dict_req(d, "kind")?;
+    let ty = match dict_or::<Option<String>>(d, "ifc_type", None) {
+        Some(name) => ValueType::parse(&name).map_err(err)?,
+        None => ValueType::Label,
+    };
     match kind.as_str() {
-        "const" => Ok(Value::Const(any_to_string(&req(d, "value")?)?)),
+        "const" => Ok(Value::Const(
+            PropValue::parse(ty, &any_to_string(&req(d, "value")?)?).map_err(err)?,
+        )),
         "attr" => Ok(Value::Attr {
+            ty,
             key: AttrKey::parse(&dict_req::<String>(d, "key")?).map_err(err)?,
             catalog: catalog_from_py(opt_item(d, "catalog"))?,
             decimals: dict_or(d, "decimals", None),
@@ -562,6 +615,7 @@ fn value_from_py(d: &Bound<'_, PyDict>) -> PyResult<Value> {
                 .transpose()?,
         }),
         "quantity" => Ok(Value::Quantity {
+            ty,
             key: QtyKey::parse(&dict_req::<String>(d, "key")?).map_err(err)?,
             decimals: dict_or(d, "decimals", None),
         }),

@@ -9,6 +9,8 @@ pub const DEFAULT_RGB: [f64; 3] = [1.0, 1.0, 0.498];
 pub const ROOF_RGB: [f64; 3] = [1.0, 0.0, 0.0];
 /// Nullpunktobjekt pyramid. Same as BIMFabrikHH `PYRAMID_COLOR`.
 pub const BASEPOINT_RGB: [f64; 3] = [239.0 / 255.0, 109.0 / 255.0, 109.0 / 255.0];
+/// Nullpunktobjekt "N" and north arrow. Same as BIMFabrikHH `ARROW_COLOR`.
+pub const BASEPOINT_ARROW_RGB: [f64; 3] = [64.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0];
 /// City / intern Nullpunkt edge length in metres (`_DEFAULT_BASEPOINT_SIZE`).
 pub const BASEPOINT_SIZE: f64 = 8.0;
 /// Tree trunk. Same as TreesGenericApp `DEFAULT_TRUNK_COLOR` (112, 69, 46).

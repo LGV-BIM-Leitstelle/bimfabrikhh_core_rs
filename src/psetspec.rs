@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::katalog::{dachform_label, funktion_label};
-use crate::types::{upsert_pset, ParsedBuilding, Pset};
+use crate::types::{upsert_pset, ParsedBuilding, PropValue, Pset, ValueType};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
@@ -110,19 +110,23 @@ impl Catalog {
     }
 }
 
+/// A property rule. `ty` is the IFC type the caller declared; a source value
+/// that does not fit it is dropped like a missing one, never retyped.
 #[derive(Clone, Debug)]
 pub enum Value {
-    Const(String),
+    Const(PropValue),
     Attr {
         key: AttrKey,
         catalog: Option<Catalog>,
         decimals: Option<usize>,
         /// `None` drops the property when the attribute is absent.
         default: Option<String>,
+        ty: ValueType,
     },
     Quantity {
         key: QtyKey,
         decimals: Option<usize>,
+        ty: ValueType,
     },
 }
 
@@ -178,10 +182,22 @@ fn fmt_f64(v: f64, decimals: Option<usize>) -> String {
 }
 
 impl Value {
-    fn render(&self, b: &ParsedBuilding, facts: Option<&SurfaceFacts<'_>>) -> Option<String> {
+    fn typed(&self, text: Option<String>) -> Option<PropValue> {
+        let ty = match self {
+            Value::Const(v) => return Some(v.clone()),
+            Value::Attr { ty, .. } | Value::Quantity { ty, .. } => *ty,
+        };
+        PropValue::parse(ty, &text?).ok()
+    }
+
+    fn render(&self, b: &ParsedBuilding, facts: Option<&SurfaceFacts<'_>>) -> Option<PropValue> {
+        self.typed(self.render_text(b, facts))
+    }
+
+    fn render_text(&self, b: &ParsedBuilding, facts: Option<&SurfaceFacts<'_>>) -> Option<String> {
         match self {
-            Value::Const(v) => Some(v.clone()),
-            Value::Attr { key, catalog, decimals, default } => {
+            Value::Const(_) => None,
+            Value::Attr { key, catalog, decimals, default, .. } => {
                 let raw = match key {
                     AttrKey::Id => Some(b.id.clone()),
                     AttrKey::GmlName => b.gml_name.clone(),
@@ -204,7 +220,7 @@ impl Value {
                 };
                 mapped.or_else(|| default.clone())
             }
-            Value::Quantity { key, decimals } => {
+            Value::Quantity { key, decimals, .. } => {
                 let f = facts?;
                 Some(match key {
                     QtyKey::Area => fmt_f64(f.area, *decimals),
@@ -216,10 +232,14 @@ impl Value {
         }
     }
 
-    fn render_map(&self, attrs: &HashMap<String, String>) -> Option<String> {
+    fn render_map(&self, attrs: &HashMap<String, String>) -> Option<PropValue> {
+        self.typed(self.render_map_text(attrs))
+    }
+
+    fn render_map_text(&self, attrs: &HashMap<String, String>) -> Option<String> {
         match self {
-            Value::Const(v) => Some(v.clone()),
-            Value::Attr { key, catalog, decimals, default } => {
+            Value::Const(_) => None,
+            Value::Attr { key, catalog, decimals, default, .. } => {
                 let raw = match key {
                     AttrKey::Id => attrs.get("id").or_else(|| attrs.get("name")).cloned(),
                     AttrKey::GmlName => attrs.get("gml_name").cloned(),
@@ -315,7 +335,7 @@ mod tests {
         psets
             .iter()
             .find(|p| p.name == name)
-            .map(|p| p.properties.iter().cloned().collect())
+            .map(|p| p.properties.iter().map(|(k, v)| (k.clone(), v.to_string())).collect())
             .unwrap_or_default()
     }
 
@@ -330,10 +350,10 @@ mod tests {
     #[test]
     fn renders_const_attr_and_catalog() {
         let specs = spec(vec![
-            ("c".into(), Value::Const("k".into())),
+            ("c".into(), Value::Const(PropValue::label("k"))),
             (
                 "lod".into(),
-                Value::Attr { key: AttrKey::Lod, catalog: None, decimals: None, default: None },
+                Value::Attr { key: AttrKey::Lod, catalog: None, decimals: None, default: None, ty: ValueType::Label },
             ),
             (
                 "h".into(),
@@ -342,6 +362,7 @@ mod tests {
                     catalog: None,
                     decimals: Some(2),
                     default: None,
+                    ty: ValueType::Label,
                 },
             ),
             (
@@ -351,6 +372,7 @@ mod tests {
                     catalog: Some(Catalog::Funktion),
                     decimals: None,
                     default: Some("undefiniert".into()),
+                    ty: ValueType::Label,
                 },
             ),
             (
@@ -360,6 +382,7 @@ mod tests {
                     catalog: None,
                     decimals: None,
                     default: None,
+                    ty: ValueType::Label,
                 },
             ),
         ]);
@@ -384,6 +407,7 @@ mod tests {
                     catalog: None,
                     decimals: None,
                     default: Some("0.0".into()),
+                    ty: ValueType::Label,
                 },
             ),
             (
@@ -393,6 +417,7 @@ mod tests {
                     catalog: None,
                     decimals: None,
                     default: None,
+                    ty: ValueType::Label,
                 },
             ),
         ]);
@@ -410,8 +435,8 @@ mod tests {
             name: "Q".into(),
             scope: Scope::Surface,
             properties: vec![
-                ("A".into(), Value::Quantity { key: QtyKey::Area, decimals: Some(4) }),
-                ("T".into(), Value::Quantity { key: QtyKey::SurfaceType, decimals: None }),
+                ("A".into(), Value::Quantity { key: QtyKey::Area, decimals: Some(4), ty: ValueType::Label }),
+                ("T".into(), Value::Quantity { key: QtyKey::SurfaceType, decimals: None, ty: ValueType::Label }),
             ],
         }];
         let n = Needs::of(&specs);
@@ -423,7 +448,7 @@ mod tests {
         let specs = vec![PsetSpec {
             name: "Q".into(),
             scope: Scope::Surface,
-            properties: vec![("A".into(), Value::Quantity { key: QtyKey::Area, decimals: None })],
+            properties: vec![("A".into(), Value::Quantity { key: QtyKey::Area, decimals: None, ty: ValueType::Label })],
         }];
         assert!(eval(&specs, Scope::Building, &building(), None).is_empty());
     }
@@ -434,7 +459,7 @@ mod tests {
         let specs = spec(
             names
                 .iter()
-                .map(|n| ((*n).to_string(), Value::Const("v".into())))
+                .map(|n| ((*n).to_string(), Value::Const(PropValue::label("v"))))
                 .collect(),
         );
         let out = eval(&specs, Scope::Building, &building(), None);
@@ -447,12 +472,12 @@ mod tests {
             PsetSpec {
                 name: "P".into(),
                 scope: Scope::Building,
-                properties: vec![("a".into(), Value::Const("1".into()))],
+                properties: vec![("a".into(), Value::Const(PropValue::label("1")))],
             },
             PsetSpec {
                 name: "P".into(),
                 scope: Scope::Building,
-                properties: vec![("b".into(), Value::Const("2".into()))],
+                properties: vec![("b".into(), Value::Const(PropValue::label("2")))],
             },
         ];
         let out = eval(&specs, Scope::Building, &building(), None);
@@ -472,7 +497,7 @@ mod tests {
     #[test]
     fn eval_map_reads_tree_attributes() {
         let specs = spec(vec![
-            ("_Gattung".into(), Value::Const("Gehoelz".into())),
+            ("_Gattung".into(), Value::Const(PropValue::label("Gehoelz"))),
             (
                 "_Baumnummer".into(),
                 Value::Attr {
@@ -480,6 +505,7 @@ mod tests {
                     catalog: None,
                     decimals: None,
                     default: None,
+                    ty: ValueType::Label,
                 },
             ),
             (
@@ -489,6 +515,7 @@ mod tests {
                     catalog: None,
                     decimals: Some(2),
                     default: None,
+                    ty: ValueType::Label,
                 },
             ),
             (
@@ -498,6 +525,7 @@ mod tests {
                     catalog: None,
                     decimals: None,
                     default: None,
+                    ty: ValueType::Label,
                 },
             ),
         ]);
@@ -510,5 +538,28 @@ mod tests {
         assert_eq!(p["_Baumnummer"], "001");
         assert_eq!(p["_Kronendurchmesser"], "4.00");
         assert!(!p.contains_key("_Missing"));
+    }
+
+    #[test]
+    fn declared_type_is_kept_and_misfits_are_dropped() {
+        let attr = |key: AttrKey, ty: ValueType| Value::Attr {
+            key,
+            catalog: None,
+            decimals: None,
+            default: None,
+            ty,
+        };
+        let specs = spec(vec![
+            ("real".into(), attr(AttrKey::MeasuredHeight, ValueType::Real)),
+            ("int".into(), attr(AttrKey::StoreysAboveGround, ValueType::Integer)),
+            ("misfit".into(), attr(AttrKey::Lod, ValueType::Integer)),
+            ("label".into(), attr(AttrKey::StoreysAboveGround, ValueType::Label)),
+        ]);
+        let out = eval(&specs, Scope::Building, &building(), None);
+        let props: HashMap<_, _> = out[0].properties.iter().cloned().collect();
+        assert_eq!(props["real"], PropValue::Real(31.675));
+        assert_eq!(props["int"], PropValue::Integer(8));
+        assert_eq!(props["label"], PropValue::label("8"));
+        assert!(!props.contains_key("misfit"));
     }
 }

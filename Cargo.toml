@@ -1,6 +1,6 @@
 [package]
 name = "bimfabrikhh_core_rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Standalone CityGML parse + IFC4 STEP writer (Python bindings)"
 authors = ["Ahmed Salem <ahmed.salem@gv.hamburg.de>"]
