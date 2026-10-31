@@ -75,7 +75,8 @@ pub struct WriteOptions {
     pub cad_layer: bool,
     pub owner_history: bool,
     pub owner: OwnerIdentity,
-    pub basepoint: Option<(f64, f64)>,
+    /// Nullpunktobjekt position `(x, y, z)` in the map CRS; `z` is an absolute height.
+    pub basepoint: Option<(f64, f64, f64)>,
     /// Nullpunktobjekt edge length in metres. Only used with `basepoint`.
     pub basepoint_size: f64,
     /// Property sets on the Nullpunktobjekt, written as given.
@@ -594,9 +595,9 @@ fn write_ifc<W: Write>(
         }
     }
 
-    if let Some(xy) = opts.basepoint {
+    if let Some(xyz) = opts.basepoint {
         let (bp, body, marks) =
-            write_basepoint(w, &mut id, sub, place, (dir_z, dir_x), &owner, xy, opts.basepoint_size, opts.styles)?;
+            write_basepoint(w, &mut id, sub, place, (dir_z, dir_x), &owner, xyz, opts.basepoint_size, opts.styles)?;
         write_psets(w, &mut id, &owner, bp, &opts.basepoint_psets, "basepoint")?;
         // Always layered, independent of `cad_layer`, like the BIMFabrik Python Nullpunktobjekt.
         layer_items
@@ -693,7 +694,7 @@ fn write_mesh_faceset<W: Write>(w: &mut W, id: &mut Ids, mesh: &Mesh) -> std::io
 }
 
 /// The Nullpunktobjekt, shaped like BIMFabrikHH `create_basepoint_quad`:
-/// placed at `(x, y, 0)` relative to `site_place`, with local geometry.
+/// placed at `(x, y, z)` relative to `site_place`, with local geometry.
 /// Returns the product, the body faceset and the "N" / arrow facesets.
 #[allow(clippy::too_many_arguments)]
 fn write_basepoint<W: Write>(
@@ -703,13 +704,19 @@ fn write_basepoint<W: Write>(
     site_place: u32,
     (dir_z, dir_x): (u32, u32),
     owner: &str,
-    (x, y): (f64, f64),
+    (x, y, z): (f64, f64, f64),
     size: f64,
     styles: bool,
 ) -> std::io::Result<(u32, u32, Vec<u32>)> {
     let geometry = basepoint_geometry(size);
     let (pt, axis, place) = (id.next(), id.next(), id.next());
-    writeln!(w, "#{pt}=IFCCARTESIANPOINT(({},{},0.));", format_real(x), format_real(y))?;
+    writeln!(
+        w,
+        "#{pt}=IFCCARTESIANPOINT(({},{},{}));",
+        format_real(x),
+        format_real(y),
+        format_real(z)
+    )?;
     writeln!(w, "#{axis}=IFCAXIS2PLACEMENT3D(#{pt},#{dir_z},#{dir_x});")?;
     writeln!(w, "#{place}=IFCLOCALPLACEMENT(#{site_place},#{axis});")?;
     let body = write_mesh_faceset(w, id, &geometry.body)?;
@@ -813,7 +820,7 @@ mod tests {
 
     fn basepoint_text(basepoint_psets: Vec<Pset>) -> String {
         let opts = WriteOptions {
-            basepoint: Some((565000.0, 5934000.0)),
+            basepoint: Some((565000.0, 5934000.0, 0.0)),
             basepoint_psets,
             ..WriteOptions::default()
         };
@@ -881,7 +888,7 @@ mod tests {
     #[test]
     fn basepoint_size_scales_the_star() {
         let opts = WriteOptions {
-            basepoint: Some((0.0, 0.0)),
+            basepoint: Some((0.0, 0.0, 0.0)),
             basepoint_size: 1.0,
             ..WriteOptions::default()
         };
@@ -894,7 +901,7 @@ mod tests {
     #[test]
     fn basepoint_is_placed_at_its_xy_with_local_geometry() {
         let opts = WriteOptions {
-            basepoint: Some((565000.0, 5933500.0)),
+            basepoint: Some((565000.0, 5933500.0, 0.0)),
             basepoint_size: 1.0,
             ..WriteOptions::default()
         };
@@ -904,5 +911,19 @@ mod tests {
         assert!(text.contains("IFCCARTESIANPOINT((565000.,5933500.,0.));"));
         assert!(text.contains("IFCCARTESIANPOINTLIST3D(((-0.5,-0.5,1.),"));
         assert!(!text.contains("IFCCARTESIANPOINTLIST3D(((565"));
+    }
+
+    #[test]
+    fn basepoint_is_placed_at_its_height() {
+        let opts = WriteOptions {
+            basepoint: Some((565000.0, 5933500.0, 12.35)),
+            basepoint_size: 1.0,
+            ..WriteOptions::default()
+        };
+        let mut out = Vec::new();
+        write_ifc(&mut out, &[], &opts, "test.ifc").unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("IFCCARTESIANPOINT((565000.,5933500.,12.35));"));
+        assert!(text.contains("IFCCARTESIANPOINTLIST3D(((-0.5,-0.5,1.),"));
     }
 }

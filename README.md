@@ -123,11 +123,13 @@ IFC has no property sets. `bbox_epsg` is `(min_x, min_y, max_x, max_y)` in the C
 With `basepoint`, every writer adds the Nullpunktobjekt, shaped like the BIMFabrikHH Python one: a star body with an
 "N" and a north arrow on top and an arrow below. The body is on the `_Projektnullpunkt` layer (red), "N" and arrows on
 `_Projektnullpunkt_pfeil` (dark grey); all four are `IfcPolygonalFaceSet` meshes, always layered, independent of
-`cad_layer`. The object is placed at `basepoint` (`(x, y, 0)`, relative to the site), where the pyramids meet; its
-geometry is local. `basepoint_size` (optional, all writers, default 8.0) is its edge length in metres; BIMFabrikHH uses
-1.0 for trees, 5.0 for terrain and 8.0 for city models. `basepoint_psets` (optional, all writers) are its property sets
-as `{pset_name: {property: value}}`, typed like any raw pset (see Property sets). The caller prepares them
-(BIMFabrikHH_core `basepoint_pset_values`); omit them and the Nullpunktobjekt has none.
+`cad_layer`. `basepoint` is `(x, y)` or `(x, y, z)` in the map CRS, `z` an absolute height (default 0); the object is
+placed there, relative to the site, where the pyramids meet; its geometry is local. For terrain, `x, y` are also the
+local origin of the vertices; their heights are not shifted by `z`. `basepoint_size` (optional, all writers, default
+8.0) is its edge length in metres; BIMFabrikHH uses 1.0 for trees, 5.0 for terrain and 8.0 for city models.
+`basepoint_psets` (optional, all writers) are its property sets as `{pset_name: {property: value}}`, typed like any raw
+pset (see Property sets). The caller prepares them (BIMFabrikHH_core `basepoint_pset_values`); omit them and the
+Nullpunktobjekt has none.
 
 Rust has no PROJ. To write the buildings in another CRS, pass `transform`: any callable `transform(xs, ys) -> (xs, ys)`,
 e.g. pyproj's `Transformer.transform`. It is called once with the x/y of all kept buildings (after the `bbox_epsg`

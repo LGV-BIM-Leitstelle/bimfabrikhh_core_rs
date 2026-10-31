@@ -538,11 +538,21 @@ pub fn products_from_py(products: &Bound<'_, PyList>) -> PyResult<Vec<Product>> 
     Ok(parsed)
 }
 
-pub fn basepoint_xy(basepoint: Option<Bound<'_, PyTuple>>) -> PyResult<Option<(f64, f64)>> {
-    match basepoint {
-        Some(t) if t.len() >= 2 => Ok(Some((t.get_item(0)?.extract()?, t.get_item(1)?.extract()?))),
-        _ => Ok(None),
+/// `(x, y)` or `(x, y, z)`; `z` defaults to 0.
+pub fn basepoint_xyz(basepoint: Option<Bound<'_, PyTuple>>) -> PyResult<Option<(f64, f64, f64)>> {
+    let Some(t) = basepoint else {
+        return Ok(None);
+    };
+    let z: f64 = match t.len() {
+        2 => 0.0,
+        3 => t.get_item(2)?.extract()?,
+        n => return Err(PyValueError::new_err(format!("basepoint must be (x, y) or (x, y, z), got {n} values"))),
+    };
+    let (x, y): (f64, f64) = (t.get_item(0)?.extract()?, t.get_item(1)?.extract()?);
+    if !(x.is_finite() && y.is_finite() && z.is_finite()) {
+        return Err(PyValueError::new_err("basepoint coordinates must be finite numbers"));
     }
+    Ok(Some((x, y, z)))
 }
 
 pub fn gml_paths_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {

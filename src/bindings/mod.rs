@@ -12,7 +12,7 @@ use crate::parse::parse_gml_file;
 use crate::srs::{cityjson_declared_crs, gml_declared_crs};
 use crate::types::ParsedBuilding;
 use convert::{
-    basepoint_psets_from_py, basepoint_size_from_py, basepoint_xy, building_to_py, cityjson_source_from_py, colors_from_py, crs_from_py, gml_paths_from_py,
+    basepoint_psets_from_py, basepoint_size_from_py, basepoint_xyz, building_to_py, cityjson_source_from_py, colors_from_py, crs_from_py, gml_paths_from_py,
     ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py, terrain_from_py,
     terrain_parts_from_py, trees_from_py, xy_transform_from_py, xyz_list_from_py, faces_from_py,
 };
@@ -65,7 +65,7 @@ fn export_options(
         cad_layer,
         owner_history,
         owner: owner_from_py(owner)?,
-        basepoint: basepoint_xy(basepoint)?,
+        basepoint: basepoint_xyz(basepoint)?,
         basepoint_size: basepoint_size_from_py(basepoint_size)?,
         basepoint_psets: basepoint_psets_from_py(basepoint_psets)?,
         psets: pset_specs_from_py(psets)?,

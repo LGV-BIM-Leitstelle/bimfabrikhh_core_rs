@@ -37,7 +37,8 @@ pub struct ExportOptions {
     pub cad_layer: bool,
     pub owner_history: bool,
     pub owner: OwnerIdentity,
-    pub basepoint: Option<(f64, f64)>,
+    /// Nullpunktobjekt position `(x, y, z)`; `x, y` are also the terrain origin.
+    pub basepoint: Option<(f64, f64, f64)>,
     /// Nullpunktobjekt edge length in metres.
     pub basepoint_size: f64,
     /// Concrete property sets on the Nullpunktobjekt. Empty writes none.
@@ -277,14 +278,14 @@ pub fn trees_to_ifc(
     Ok(ifc_path.to_string())
 }
 
-/// Local origin all terrain vertices are shifted by: the basepoint if given,
-/// else the lower-left corner of `vertices`.
+/// Local origin all terrain vertices are shifted by: the basepoint XY if given,
+/// else the lower-left corner of `vertices`. Heights stay absolute.
 fn terrain_origin<'a>(
     vertices: impl IntoIterator<Item = &'a [f64; 3]>,
     opts: &ExportOptions,
 ) -> [f64; 3] {
     match opts.basepoint {
-        Some((x, y)) => [x, y, 0.0],
+        Some((x, y, _)) => [x, y, 0.0],
         None => {
             let (min_x, min_y) = vertices.into_iter().fold(
                 (f64::INFINITY, f64::INFINITY),
