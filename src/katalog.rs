@@ -3999,4 +3999,3 @@ fn funktion_map() -> &'static HashMap<&'static str, &'static str> {
         ])
     })
 }
-

@@ -27,6 +27,7 @@ from bimfabrikhh_core_rs.bimfabrikhh_core_rs import (
     parse_cityjson,
     parse_cityjson_text,
     parse_gml,
+    boreholes_to_ifc,
     terrain_parts_to_ifc,
     terrain_to_ifc,
     trees_to_ifc,
@@ -43,5 +44,6 @@ __all__ = [
     "trees_to_ifc",
     "terrain_to_ifc",
     "terrain_parts_to_ifc",
+    "boreholes_to_ifc",
     "declared_crs",
 ]

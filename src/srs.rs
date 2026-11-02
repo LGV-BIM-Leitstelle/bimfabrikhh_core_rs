@@ -33,21 +33,31 @@ impl DeclaredCrs {
     /// and single EPSG codes (`EPSG:25832`, `urn:ogc:def:crs:EPSG::25832`,
     /// `https://www.opengis.net/def/crs/EPSG/0/25832`).
     pub fn from_srs_name(srs_name: &str) -> Self {
-        let lookup = |table: &[(&str, u32)], key: &str| table.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
-        let (horizontal_epsg, vertical_epsg) = if let Some(rest) = srs_name.strip_prefix("urn:adv:crs:") {
-            let (horizontal, vertical) = rest.split_once('*').unwrap_or((rest, ""));
-            (lookup(&ADV_HORIZONTAL, horizontal), lookup(&ADV_VERTICAL, vertical))
-        } else {
-            match epsg_codes(srs_name)[..] {
-                [horizontal, vertical, ..] => (Some(horizontal), Some(vertical)),
-                [code] => match COMPOUND.iter().find(|(c, _, _)| *c == code) {
-                    Some(&(_, horizontal, vertical)) => (Some(horizontal), Some(vertical)),
-                    None => (Some(code), None),
-                },
-                [] => (None, None),
-            }
+        let lookup = |table: &[(&str, u32)], key: &str| {
+            table.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
         };
-        DeclaredCrs { srs_name: srs_name.to_string(), horizontal_epsg, vertical_epsg }
+        let (horizontal_epsg, vertical_epsg) =
+            if let Some(rest) = srs_name.strip_prefix("urn:adv:crs:") {
+                let (horizontal, vertical) = rest.split_once('*').unwrap_or((rest, ""));
+                (
+                    lookup(&ADV_HORIZONTAL, horizontal),
+                    lookup(&ADV_VERTICAL, vertical),
+                )
+            } else {
+                match epsg_codes(srs_name)[..] {
+                    [horizontal, vertical, ..] => (Some(horizontal), Some(vertical)),
+                    [code] => match COMPOUND.iter().find(|(c, _, _)| *c == code) {
+                        Some(&(_, horizontal, vertical)) => (Some(horizontal), Some(vertical)),
+                        None => (Some(code), None),
+                    },
+                    [] => (None, None),
+                }
+            };
+        DeclaredCrs {
+            srs_name: srs_name.to_string(),
+            horizontal_epsg,
+            vertical_epsg,
+        }
     }
 
     fn codes(&self) -> (Option<u32>, Option<u32>) {
@@ -186,34 +196,56 @@ mod tests {
 
     #[test]
     fn srs_names_give_horizontal_and_vertical_codes() {
-        assert_eq!(codes("urn:adv:crs:ETRS89_UTM32*DE_DHHN2016_NH"), (Some(25832), Some(7837)));
+        assert_eq!(
+            codes("urn:adv:crs:ETRS89_UTM32*DE_DHHN2016_NH"),
+            (Some(25832), Some(7837))
+        );
         assert_eq!(codes("urn:adv:crs:ETRS89_UTM33"), (Some(25833), None));
-        assert_eq!(codes("urn:ogc:def:crs,crs:EPSG:6.12:25833,crs:EPSG:6.12:7837"), (Some(25833), Some(7837)));
-        assert_eq!(codes("urn:ogc:def:crs:EPSG::5555"), (Some(25832), Some(5783)));
+        assert_eq!(
+            codes("urn:ogc:def:crs,crs:EPSG:6.12:25833,crs:EPSG:6.12:7837"),
+            (Some(25833), Some(7837))
+        );
+        assert_eq!(
+            codes("urn:ogc:def:crs:EPSG::5555"),
+            (Some(25832), Some(5783))
+        );
         assert_eq!(codes("EPSG:25832"), (Some(25832), None));
-        assert_eq!(codes("https://www.opengis.net/def/crs/EPSG/0/25832"), (Some(25832), None));
+        assert_eq!(
+            codes("https://www.opengis.net/def/crs/EPSG/0/25832"),
+            (Some(25832), None)
+        );
         assert_eq!(codes("local"), (None, None));
     }
 
     #[test]
     fn cityjson_reference_system_is_read() {
         let doc = serde_json::json!({"type": "CityJSON", "metadata": {"referenceSystem": "https://www.opengis.net/def/crs/EPSG/0/5555"}});
-        assert_eq!(cityjson_declared_crs(&doc).unwrap().codes(), (Some(25832), Some(5783)));
-        assert_eq!(cityjson_declared_crs(&serde_json::json!({"type": "CityJSON"})), None);
+        assert_eq!(
+            cityjson_declared_crs(&doc).unwrap().codes(),
+            (Some(25832), Some(5783))
+        );
+        assert_eq!(
+            cityjson_declared_crs(&serde_json::json!({"type": "CityJSON"})),
+            None
+        );
     }
 
     #[test]
     fn sources_with_different_crs_are_rejected() {
         let a = Some(DeclaredCrs::from_srs_name("EPSG:25832"));
         let b = Some(DeclaredCrs::from_srs_name("EPSG:25833"));
-        assert!(common_declared_crs([a.clone(), None, a.clone()]).unwrap().is_some());
+        assert!(common_declared_crs([a.clone(), None, a.clone()])
+            .unwrap()
+            .is_some());
         assert!(common_declared_crs([a, b]).is_err());
     }
 
     #[test]
     fn reconcile_fills_missing_vertical_datum() {
         let declared = DeclaredCrs::from_srs_name("urn:adv:crs:ETRS89_UTM32*DE_DHHN2016_NH");
-        let crs = reconcile_crs(Some(utm32(None)), Some(&declared), false).unwrap().unwrap();
+        let crs = reconcile_crs(Some(utm32(None)), Some(&declared), false)
+            .unwrap()
+            .unwrap();
         assert_eq!(crs.vertical_datum.as_deref(), Some("EPSG:7837"));
         assert_eq!(reconcile_crs(None, Some(&declared), false).unwrap(), None);
     }

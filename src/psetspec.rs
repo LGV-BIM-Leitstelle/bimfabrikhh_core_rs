@@ -20,7 +20,9 @@ impl Scope {
         match s {
             "building" => Ok(Scope::Building),
             "surface" => Ok(Scope::Surface),
-            other => Err(format!("unknown scope '{other}', expected 'building' or 'surface'")),
+            other => Err(format!(
+                "unknown scope '{other}', expected 'building' or 'surface'"
+            )),
         }
     }
 }
@@ -197,7 +199,13 @@ impl Value {
     fn render_text(&self, b: &ParsedBuilding, facts: Option<&SurfaceFacts<'_>>) -> Option<String> {
         match self {
             Value::Const(_) => None,
-            Value::Attr { key, catalog, decimals, default, .. } => {
+            Value::Attr {
+                key,
+                catalog,
+                decimals,
+                default,
+                ..
+            } => {
                 let raw = match key {
                     AttrKey::Id => Some(b.id.clone()),
                     AttrKey::GmlName => b.gml_name.clone(),
@@ -239,7 +247,13 @@ impl Value {
     fn render_map_text(&self, attrs: &HashMap<String, String>) -> Option<String> {
         match self {
             Value::Const(_) => None,
-            Value::Attr { key, catalog, decimals, default, .. } => {
+            Value::Attr {
+                key,
+                catalog,
+                decimals,
+                default,
+                ..
+            } => {
                 let raw = match key {
                     AttrKey::Id => attrs.get("id").or_else(|| attrs.get("name")).cloned(),
                     AttrKey::GmlName => attrs.get("gml_name").cloned(),
@@ -328,14 +342,23 @@ mod tests {
     }
 
     fn spec(props: Vec<(String, Value)>) -> Vec<PsetSpec> {
-        vec![PsetSpec { name: "P".into(), scope: Scope::Building, properties: props }]
+        vec![PsetSpec {
+            name: "P".into(),
+            scope: Scope::Building,
+            properties: props,
+        }]
     }
 
     fn props_of(psets: &[Pset], name: &str) -> HashMap<String, String> {
         psets
             .iter()
             .find(|p| p.name == name)
-            .map(|p| p.properties.iter().map(|(k, v)| (k.clone(), v.to_string())).collect())
+            .map(|p| {
+                p.properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_string()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -353,7 +376,13 @@ mod tests {
             ("c".into(), Value::Const(PropValue::label("k"))),
             (
                 "lod".into(),
-                Value::Attr { key: AttrKey::Lod, catalog: None, decimals: None, default: None, ty: ValueType::Label },
+                Value::Attr {
+                    key: AttrKey::Lod,
+                    catalog: None,
+                    decimals: None,
+                    default: None,
+                    ty: ValueType::Label,
+                },
             ),
             (
                 "h".into(),
@@ -435,8 +464,22 @@ mod tests {
             name: "Q".into(),
             scope: Scope::Surface,
             properties: vec![
-                ("A".into(), Value::Quantity { key: QtyKey::Area, decimals: Some(4), ty: ValueType::Label }),
-                ("T".into(), Value::Quantity { key: QtyKey::SurfaceType, decimals: None, ty: ValueType::Label }),
+                (
+                    "A".into(),
+                    Value::Quantity {
+                        key: QtyKey::Area,
+                        decimals: Some(4),
+                        ty: ValueType::Label,
+                    },
+                ),
+                (
+                    "T".into(),
+                    Value::Quantity {
+                        key: QtyKey::SurfaceType,
+                        decimals: None,
+                        ty: ValueType::Label,
+                    },
+                ),
             ],
         }];
         let n = Needs::of(&specs);
@@ -448,7 +491,14 @@ mod tests {
         let specs = vec![PsetSpec {
             name: "Q".into(),
             scope: Scope::Surface,
-            properties: vec![("A".into(), Value::Quantity { key: QtyKey::Area, decimals: None, ty: ValueType::Label })],
+            properties: vec![(
+                "A".into(),
+                Value::Quantity {
+                    key: QtyKey::Area,
+                    decimals: None,
+                    ty: ValueType::Label,
+                },
+            )],
         }];
         assert!(eval(&specs, Scope::Building, &building(), None).is_empty());
     }
@@ -550,10 +600,19 @@ mod tests {
             ty,
         };
         let specs = spec(vec![
-            ("real".into(), attr(AttrKey::MeasuredHeight, ValueType::Real)),
-            ("int".into(), attr(AttrKey::StoreysAboveGround, ValueType::Integer)),
+            (
+                "real".into(),
+                attr(AttrKey::MeasuredHeight, ValueType::Real),
+            ),
+            (
+                "int".into(),
+                attr(AttrKey::StoreysAboveGround, ValueType::Integer),
+            ),
             ("misfit".into(), attr(AttrKey::Lod, ValueType::Integer)),
-            ("label".into(), attr(AttrKey::StoreysAboveGround, ValueType::Label)),
+            (
+                "label".into(),
+                attr(AttrKey::StoreysAboveGround, ValueType::Label),
+            ),
         ]);
         let out = eval(&specs, Scope::Building, &building(), None);
         let props: HashMap<_, _> = out[0].properties.iter().cloned().collect();

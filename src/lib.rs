@@ -14,9 +14,12 @@
 //! - [`srs`] — CRS a source declares (`srsName` / `referenceSystem`), no PROJ
 //! - [`tree`] — n-gon trunk + icosphere crown (TreesGenericApp)
 //! - [`terrain`] — one triangulated DGM mesh (TerrainGenericApp write path)
+//! - [`borehole`] — stacked soil cylinders and a groundwater square (BoreholesGenericApp)
 //! - [`types`] — shared parse / export structs
 
 mod api;
+mod bindings;
+mod borehole;
 mod cityjson;
 mod color;
 mod geom;
@@ -25,7 +28,6 @@ mod katalog;
 mod parse;
 mod psetspec;
 mod srs;
-mod bindings;
 mod terrain;
 mod tree;
 mod types;

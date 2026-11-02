@@ -30,7 +30,10 @@ fn parse_poslist(text: &str) -> Vec<[f64; 3]> {
     nums.as_chunks::<3>().0.to_vec()
 }
 
-fn attr_local_value(attrs: quick_xml::events::attributes::Attributes<'_>, want: &[u8]) -> Option<String> {
+fn attr_local_value(
+    attrs: quick_xml::events::attributes::Attributes<'_>,
+    want: &[u8],
+) -> Option<String> {
     for attr in attrs.flatten() {
         if local(attr.key.as_ref()) == want {
             return Some(String::from_utf8_lossy(&attr.value).into_owned());
@@ -186,7 +189,9 @@ impl BuildingAcc {
                 self.attributes.roof_type = Some(value.to_string())
             }
             _ => {
-                self.attributes.extra.insert(tag.to_string(), value.to_string());
+                self.attributes
+                    .extra
+                    .insert(tag.to_string(), value.to_string());
             }
         }
     }
@@ -227,7 +232,8 @@ pub fn parse_gml_file(
     progress: bool,
 ) -> Result<Vec<ParsedBuilding>, String> {
     let path = path.as_ref();
-    let mut reader = Reader::from_file(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    let mut reader =
+        Reader::from_file(path).map_err(|e| format!("open {}: {e}", path.display()))?;
     reader.config_mut().trim_text(true);
 
     let mut buildings = Vec::new();
@@ -240,7 +246,8 @@ pub fn parse_gml_file(
                 let qname = e.name();
                 let name = local(qname.as_ref());
                 if name == b"Building" {
-                    let id = attr_local_value(e.attributes(), b"id").unwrap_or_else(|| "unknown".into());
+                    let id =
+                        attr_local_value(e.attributes(), b"id").unwrap_or_else(|| "unknown".into());
                     let skip = building_id_filter.is_some_and(|f| f != id);
                     current = Some(BuildingAcc::new(id, skip));
                 } else if let Some(acc) = current.as_mut() {
@@ -293,7 +300,8 @@ pub fn parse_gml_file(
                     }
                     if !acc.skip_geom {
                         if let Some(href) = attr_local_value(e.attributes(), b"href") {
-                            acc.xlink_refs.push(href.trim_start_matches('#').to_string());
+                            acc.xlink_refs
+                                .push(href.trim_start_matches('#').to_string());
                         }
                     }
                 }

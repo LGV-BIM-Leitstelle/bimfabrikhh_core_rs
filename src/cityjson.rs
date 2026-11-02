@@ -131,7 +131,9 @@ fn decode_vertices(root: &Value) -> Result<Vec<[f64; 3]>, String> {
     };
     let mut out = Vec::with_capacity(raw.len());
     for v in raw {
-        let a = v.as_array().ok_or_else(|| "vertex is not an array".to_string())?;
+        let a = v
+            .as_array()
+            .ok_or_else(|| "vertex is not an array".to_string())?;
         if a.len() < 3 {
             return Err("vertex needs 3 coordinates".into());
         }
@@ -199,10 +201,7 @@ fn geom_to_boundaries(g: &Value, verts: &[[f64; 3]], part_id: Option<String>) ->
     for (face, label) in faces.into_iter().zip(labels) {
         let (outer_idx, inner_idx) = face;
         let ring = ring_xyz(&outer_idx, verts);
-        let interiors = inner_idx
-            .into_iter()
-            .map(|r| ring_xyz(&r, verts))
-            .collect();
+        let interiors = inner_idx.into_iter().map(|r| ring_xyz(&r, verts)).collect();
         if let Some(b) = (Boundary {
             ring,
             interiors,
@@ -262,7 +261,11 @@ fn faces_from_surface(surfaces: &Value) -> Vec<(Vec<u32>, Vec<Vec<u32>>)> {
         if outer.len() < 3 {
             continue;
         }
-        let inners = rings[1..].iter().map(index_ring).filter(|r| r.len() >= 3).collect();
+        let inners = rings[1..]
+            .iter()
+            .map(index_ring)
+            .filter(|r| r.len() >= 3)
+            .collect();
         out.push((outer, inners));
     }
     out
@@ -365,8 +368,16 @@ fn attrs_from_obj(obj: &Value) -> BuildingAttributes {
 
 fn address_name(obj: &Value) -> Option<String> {
     let addr = obj.get("address").and_then(Value::as_array)?.first()?;
-    let street = addr.get("ThoroughfareName").and_then(Value::as_str).unwrap_or("").trim();
-    let num = addr.get("ThoroughfareNumber").and_then(Value::as_str).unwrap_or("").trim();
+    let street = addr
+        .get("ThoroughfareName")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let num = addr
+        .get("ThoroughfareNumber")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
     let name = format!("{street} {num}").trim().to_string();
     if name.is_empty() {
         None
@@ -393,7 +404,9 @@ fn merge_attrs(dst: &mut BuildingAttributes, src: &BuildingAttributes) {
 fn building_hits_bbox(b: &ParsedBuilding, bb: BboxUtm) -> bool {
     let (xmin, ymin, xmax, ymax) = bb;
     b.boundaries.iter().any(|bd| {
-        bd.ring.iter().any(|p| p[0] >= xmin && p[0] <= xmax && p[1] >= ymin && p[1] <= ymax)
+        bd.ring
+            .iter()
+            .any(|p| p[0] >= xmin && p[0] <= xmax && p[1] >= ymin && p[1] <= ymax)
     })
 }
 

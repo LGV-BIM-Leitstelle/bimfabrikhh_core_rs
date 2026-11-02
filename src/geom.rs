@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use crate::color::Colors;
 use crate::psetspec::{self, Needs, PsetSpec, Scope, SurfaceFacts};
 use crate::types::{
-    building_display_name, lookup_ifc_type, strip_close, upsert_pset, Boundary,
-    BuildingExport, Face, ParsedBuilding, Product,
+    building_display_name, lookup_ifc_type, strip_close, upsert_pset, Boundary, BuildingExport,
+    Face, ParsedBuilding, Product,
 };
 
 pub fn polygon_gross_area(ring: &[[f64; 3]]) -> f64 {
@@ -124,7 +124,10 @@ impl ExportConfig<'_> {
     }
 }
 
-pub fn buildings_to_export(buildings: &[ParsedBuilding], cfg: &ExportConfig<'_>) -> Vec<BuildingExport> {
+pub fn buildings_to_export(
+    buildings: &[ParsedBuilding],
+    cfg: &ExportConfig<'_>,
+) -> Vec<BuildingExport> {
     let specs = cfg.specs;
     let needs = Needs::of(specs);
     buildings
@@ -147,6 +150,8 @@ pub fn buildings_to_export(buildings: &[ParsedBuilding], cfg: &ExportConfig<'_>)
                     Vec::new()
                 },
                 products,
+                assembly: false,
+                placement: None,
             })
         })
         .collect()
@@ -163,14 +168,30 @@ fn typed_products(
         .enumerate()
         .map(|(idx, bd)| {
             let (vertices, face) = face_from_boundary(bd);
-            let mut name_parts = vec![building_display_name(b), bd.surface_type.clone(), idx.to_string()];
+            let mut name_parts = vec![
+                building_display_name(b),
+                bd.surface_type.clone(),
+                idx.to_string(),
+            ];
             if let Some(part) = &bd.source_part_id {
                 name_parts.insert(1, part.clone());
             }
             let facts = SurfaceFacts {
-                area: if needs.area { polygon_gross_area(&bd.ring) } else { 0.0 },
-                perimeter: if needs.perimeter { polygon_perimeter(&bd.ring) } else { 0.0 },
-                tilt: if needs.tilt { polygon_slope_deg(&bd.ring) } else { 0.0 },
+                area: if needs.area {
+                    polygon_gross_area(&bd.ring)
+                } else {
+                    0.0
+                },
+                perimeter: if needs.perimeter {
+                    polygon_perimeter(&bd.ring)
+                } else {
+                    0.0
+                },
+                tilt: if needs.tilt {
+                    polygon_slope_deg(&bd.ring)
+                } else {
+                    0.0
+                },
                 surface_type: &bd.surface_type,
             };
             let psets = psetspec::eval(specs, Scope::Surface, b, Some(&facts));
@@ -187,6 +208,7 @@ fn typed_products(
                     None
                 },
                 layer: None,
+                transparency: 0.0,
                 extra: Vec::new(),
                 placement: None,
             }
@@ -250,7 +272,12 @@ fn mesh_product(
     }
     // This one product stands for the whole building, so it carries both scopes:
     // surface-scope specs see the building-wide aggregates.
-    let facts = SurfaceFacts { area, perimeter: peri, tilt: 0.0, surface_type: &b.lod };
+    let facts = SurfaceFacts {
+        area,
+        perimeter: peri,
+        tilt: 0.0,
+        surface_type: &b.lod,
+    };
     let mut psets = psetspec::eval(specs, Scope::Building, b, None);
     for pset in psetspec::eval(specs, Scope::Surface, b, Some(&facts)) {
         upsert_pset(&mut psets, pset);
@@ -268,6 +295,7 @@ fn mesh_product(
             None
         },
         layer: None,
+        transparency: 0.0,
         extra: Vec::new(),
         placement: None,
     })

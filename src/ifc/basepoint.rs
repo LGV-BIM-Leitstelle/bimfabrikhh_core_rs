@@ -33,7 +33,10 @@ pub struct MeshFace {
 
 impl MeshFace {
     fn simple(outer: Vec<usize>) -> Self {
-        Self { outer, voids: Vec::new() }
+        Self {
+            outer,
+            voids: Vec::new(),
+        }
     }
 }
 
@@ -98,8 +101,14 @@ fn body(size: f64) -> Mesh {
     .iter()
     .map(|f| MeshFace::simple(f.to_vec()))
     .collect();
-    faces.push(MeshFace { outer: vec![0, 1, 2, 3], voids: vec![n_top, arrow_top] });
-    faces.push(MeshFace { outer: vec![4, 5, 6, 7], voids: vec![arrow_bottom] });
+    faces.push(MeshFace {
+        outer: vec![0, 1, 2, 3],
+        voids: vec![n_top, arrow_top],
+    });
+    faces.push(MeshFace {
+        outer: vec![4, 5, 6, 7],
+        voids: vec![arrow_bottom],
+    });
     Mesh { points, faces }
 }
 
@@ -115,7 +124,10 @@ fn prism(outline: &[[f64; 2]], size: f64, z0: f64, z1: f64) -> Mesh {
         .map(|&[x, y]| [x, y, z0])
         .chain(ring.iter().map(|&[x, y]| [x, y, z1]))
         .collect();
-    let mut faces = vec![MeshFace::simple((n..2 * n).collect()), MeshFace::simple((0..n).rev().collect())];
+    let mut faces = vec![
+        MeshFace::simple((n..2 * n).collect()),
+        MeshFace::simple((0..n).rev().collect()),
+    ];
     for i in 0..n {
         let j = (i + 1) % n;
         faces.push(MeshFace::simple(vec![i, j, n + j, n + i]));
@@ -156,13 +168,23 @@ mod tests {
     #[test]
     fn body_has_the_recesses_as_holes() {
         let g = basepoint_geometry(8.0);
-        assert_eq!(g.body.points.len(), 9 + N_OUTLINE.len() + 2 * ARROW_OUTLINE.len());
+        assert_eq!(
+            g.body.points.len(),
+            9 + N_OUTLINE.len() + 2 * ARROW_OUTLINE.len()
+        );
         assert_eq!(g.body.faces.len(), 10);
         let top = &g.body.faces[8];
         assert_eq!(top.outer, vec![0, 1, 2, 3]);
-        assert_eq!(top.voids.iter().map(Vec::len).collect::<Vec<_>>(), vec![10, 3]);
+        assert_eq!(
+            top.voids.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![10, 3]
+        );
         assert_eq!(g.body.faces[9].voids.len(), 1);
-        assert!(top.voids.iter().flatten().all(|&i| g.body.points[i][2] == 8.0));
+        assert!(top
+            .voids
+            .iter()
+            .flatten()
+            .all(|&i| g.body.points[i][2] == 8.0));
     }
 
     #[test]
@@ -171,14 +193,25 @@ mod tests {
         let g = basepoint_geometry(size);
         let depth = MARK_DEPTH_FACTOR * size;
         assert_eq!(g.marks.len(), 3);
-        for (mark, outline) in g.marks.iter().zip([&N_OUTLINE[..], &ARROW_OUTLINE, &ARROW_OUTLINE]) {
+        for (mark, outline) in g
+            .marks
+            .iter()
+            .zip([&N_OUTLINE[..], &ARROW_OUTLINE, &ARROW_OUTLINE])
+        {
             let scaled: Vec<[f64; 2]> = outline.iter().map(|[x, y]| [x * size, y * size]).collect();
             let expected = signed_area(&scaled).abs() * depth;
-            assert!((volume(mark) - expected).abs() < 1e-9, "{} vs {expected}", volume(mark));
+            assert!(
+                (volume(mark) - expected).abs() < 1e-9,
+                "{} vs {expected}",
+                volume(mark)
+            );
         }
         let z = |m: &Mesh| {
             let zs: Vec<f64> = m.points.iter().map(|p| p[2]).collect();
-            (zs.iter().cloned().fold(f64::MAX, f64::min), zs.iter().cloned().fold(f64::MIN, f64::max))
+            (
+                zs.iter().cloned().fold(f64::MAX, f64::min),
+                zs.iter().cloned().fold(f64::MIN, f64::max),
+            )
         };
         assert_eq!(z(&g.marks[0]), (size - depth, size));
         assert_eq!(z(&g.marks[2]), (-size, -size + depth));

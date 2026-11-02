@@ -10,13 +10,16 @@ use std::time::Instant;
 
 use rayon::prelude::*;
 
+use crate::borehole::{solids_to_assemblies, BoreholeSolid};
 use crate::cityjson::{parse_cityjson_json, parse_cityjson_value};
 use crate::color::Colors;
 use crate::geom::{buildings_to_export, ExportConfig};
 use crate::ifc::{write_ifc_file, OwnerIdentity, ProjectedCrs, WriteOptions};
 use crate::parse::{parse_gml_file, BboxUtm};
 use crate::psetspec::{self, PsetSpec, Scope};
-use crate::srs::{cityjson_declared_crs, common_declared_crs, gml_declared_crs, reconcile_crs, DeclaredCrs};
+use crate::srs::{
+    cityjson_declared_crs, common_declared_crs, gml_declared_crs, reconcile_crs, DeclaredCrs,
+};
 use crate::terrain::{elevation_ok, terrain_attr_map, terrain_to_product, TerrainInput};
 use crate::tree::{drape_trees, tree_attr_map, trees_to_products, TreeInput};
 use crate::types::{upsert_pset, BuildingExport, Face, ParsedBuilding, Product, Pset};
@@ -98,7 +101,12 @@ pub fn parse_gml_sources(
     if paths.len() <= 1 {
         let mut buildings = Vec::new();
         for path in paths {
-            buildings.extend(parse_gml_file(path, building_id_filter, bbox_epsg, progress)?);
+            buildings.extend(parse_gml_file(
+                path,
+                building_id_filter,
+                bbox_epsg,
+                progress,
+            )?);
         }
         if buildings.is_empty() {
             return Err("no buildings parsed from CityGML".into());
@@ -162,7 +170,10 @@ pub fn parse_cityjson_source(
 pub type XyTransform<'a> = dyn FnMut(&mut [f64], &mut [f64]) -> Result<(), String> + 'a;
 
 /// Apply `transform` to every ring and interior point of `buildings`.
-pub fn transform_buildings(buildings: &mut [ParsedBuilding], transform: &mut XyTransform) -> Result<(), String> {
+pub fn transform_buildings(
+    buildings: &mut [ParsedBuilding],
+    transform: &mut XyTransform,
+) -> Result<(), String> {
     let points = || {
         buildings
             .iter()
@@ -173,8 +184,14 @@ pub fn transform_buildings(buildings: &mut [ParsedBuilding], transform: &mut XyT
     let mut xs: Vec<f64> = points().map(|p| p[0]).collect();
     let mut ys: Vec<f64> = points().map(|p| p[1]).collect();
     transform(&mut xs, &mut ys)?;
-    if let Some(bad) = xs.iter().zip(&ys).position(|(x, y)| !x.is_finite() || !y.is_finite()) {
-        return Err(format!("transform returned a non-finite coordinate for point {bad}"));
+    if let Some(bad) = xs
+        .iter()
+        .zip(&ys)
+        .position(|(x, y)| !x.is_finite() || !y.is_finite())
+    {
+        return Err(format!(
+            "transform returned a non-finite coordinate for point {bad}"
+        ));
     }
     let mut out = xs.into_iter().zip(ys);
     for p in buildings
@@ -202,7 +219,12 @@ pub fn gml_to_ifc(
     transform: Option<&mut XyTransform>,
     opts: &ExportOptions,
 ) -> Result<String, String> {
-    let declared = common_declared_crs(paths.iter().map(gml_declared_crs).collect::<Result<Vec<_>, _>>()?)?;
+    let declared = common_declared_crs(
+        paths
+            .iter()
+            .map(gml_declared_crs)
+            .collect::<Result<Vec<_>, _>>()?,
+    )?;
     let crs = reconcile_crs(opts.crs.clone(), declared.as_ref(), transform.is_some())?;
     let t0 = Instant::now();
     let mut buildings = parse_gml_sources(paths, building_id_filter, bbox_epsg, opts.progress)?;
@@ -287,10 +309,11 @@ fn terrain_origin<'a>(
     match opts.basepoint {
         Some((x, y, _)) => [x, y, 0.0],
         None => {
-            let (min_x, min_y) = vertices.into_iter().fold(
-                (f64::INFINITY, f64::INFINITY),
-                |(ax, ay), v| (ax.min(v[0]), ay.min(v[1])),
-            );
+            let (min_x, min_y) = vertices
+                .into_iter()
+                .fold((f64::INFINITY, f64::INFINITY), |(ax, ay), v| {
+                    (ax.min(v[0]), ay.min(v[1]))
+                });
             [min_x, min_y, 0.0]
         }
     }
@@ -301,7 +324,10 @@ fn terrain_product(mesh: &TerrainInput, opts: &ExportOptions) -> Result<Product,
     let n_bad = mesh.vertices.iter().filter(|v| !elevation_ok(v[2])).count();
     let mut product = terrain_to_product(mesh)?;
     if opts.progress && n_bad > 0 {
-        eprintln!("  terrain {}: filled {n_bad} nodata z from nearest valid", mesh.name);
+        eprintln!(
+            "  terrain {}: filled {n_bad} nodata z from nearest valid",
+            mesh.name
+        );
     }
     if !opts.psets.is_empty() {
         for pset in psetspec::eval_map(&opts.psets, Scope::Building, &terrain_attr_map(mesh)) {
@@ -311,9 +337,33 @@ fn terrain_product(mesh: &TerrainInput, opts: &ExportOptions) -> Result<Product,
     Ok(product)
 }
 
+/// BoreholesGenericApp path: Python parses BoreholeML. Rust builds one proxy
+/// per solid (soil cylinder or groundwater square) and writes STEP.
+///
+/// Solids that share [`BoreholeSolid::borehole`] become parts of one
+/// `IfcElementAssembly`. The site contains that assembly. `Pset_Aufschluss`
+/// and `Pset_Hyperlink` are written on the assembly and on each part.
+/// Colour and transparency come from each solid. There is no `IfcMaterial`.
+pub fn boreholes_to_ifc(
+    solids: &[BoreholeSolid],
+    ifc_path: &str,
+    opts: &ExportOptions,
+) -> Result<String, String> {
+    let assemblies = solids_to_assemblies(solids)?;
+    let mut write = opts.write_options();
+    write.city_model = false;
+    write.contain_in_site = true;
+    write_ifc_file(&assemblies, ifc_path, &write)?;
+    Ok(ifc_path.to_string())
+}
+
 /// Terrain products are proxies contained directly in the site, never wrapped
 /// in an `IfcBuilding` and never a city model.
-fn write_terrain(products: Vec<Product>, ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
+fn write_terrain(
+    products: Vec<Product>,
+    ifc_path: &str,
+    opts: &ExportOptions,
+) -> Result<String, String> {
     let mut write = opts.write_options();
     write.city_model = false;
     write.contain_in_site = true;
@@ -322,7 +372,11 @@ fn write_terrain(products: Vec<Product>, ifc_path: &str, opts: &ExportOptions) -
 }
 
 /// TerrainGenericApp write path: Python still meshes; Rust writes STEP.
-pub fn terrain_to_ifc(mesh: &TerrainInput, ifc_path: &str, opts: &ExportOptions) -> Result<String, String> {
+pub fn terrain_to_ifc(
+    mesh: &TerrainInput,
+    ifc_path: &str,
+    opts: &ExportOptions,
+) -> Result<String, String> {
     let mut mesh = mesh.clone();
     if mesh.placement.is_none() {
         mesh.placement = Some(terrain_origin(mesh.vertices.iter(), opts));
@@ -406,6 +460,8 @@ pub fn group_products(products: Vec<Product>) -> Vec<BuildingExport> {
             id: id.clone(),
             psets: Vec::new(),
             products: map.remove(&id).unwrap_or_default(),
+            assembly: false,
+            placement: None,
         })
         .collect()
 }
@@ -443,7 +499,14 @@ mod tests {
         transform_buildings(&mut buildings, &mut shift).unwrap();
         assert_eq!(calls, 1);
         let bd = &buildings[0].boundaries[0];
-        assert_eq!(bd.ring, vec![[100.0, 200.0, 5.0], [110.0, 200.0, 5.0], [110.0, 210.0, 7.0]]);
+        assert_eq!(
+            bd.ring,
+            vec![
+                [100.0, 200.0, 5.0],
+                [110.0, 200.0, 5.0],
+                [110.0, 210.0, 7.0]
+            ]
+        );
         assert_eq!(bd.interiors, vec![vec![[102.0, 202.0, 6.0]]]);
     }
 

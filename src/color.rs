@@ -19,6 +19,10 @@ pub const TRUNK_RGB: [f64; 3] = [112.0 / 255.0, 69.0 / 255.0, 46.0 / 255.0];
 pub const CROWN_RGB: [f64; 3] = [33.0 / 255.0, 128.0 / 255.0, 46.0 / 255.0];
 /// DGM. Same as TerrainGenericApp `_DEFAULT_TERRAIN_RGB` (102, 204, 0).
 pub const TERRAIN_RGB: [f64; 3] = [102.0 / 255.0, 204.0 / 255.0, 0.0];
+/// Soil layer with no Hauptgemengteil. Same as `BoreholeLayer.visual_rgb` (254, 254, 254).
+pub const BOREHOLE_UNDEFINED_RGB: [f64; 3] = [254.0 / 255.0, 254.0 / 255.0, 254.0 / 255.0];
+/// Groundwater square. Same as `BoreholesGenericApp` water colour `(0.05, 0.53, 0.8)`.
+pub const GROUNDWATER_RGB: [f64; 3] = [0.05, 0.53, 0.8];
 
 /// Caller colour input. Missing keys (and [`Colors::Defaults`]) use [`default_rgb`].
 #[derive(Clone, Debug, Default)]
@@ -62,10 +66,7 @@ mod tests {
 
     #[test]
     fn map_overrides_one_key_and_keeps_defaults() {
-        let colors = Colors::Map(HashMap::from([(
-            "WallSurface".into(),
-            [0.2, 0.2, 0.2],
-        )]));
+        let colors = Colors::Map(HashMap::from([("WallSurface".into(), [0.2, 0.2, 0.2])]));
         assert_eq!(colors.rgb("WallSurface"), [0.2, 0.2, 0.2]);
         assert_eq!(colors.rgb("RoofSurface"), ROOF_RGB);
     }

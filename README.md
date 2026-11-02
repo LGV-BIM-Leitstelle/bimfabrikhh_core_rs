@@ -52,6 +52,7 @@ Rust. You fetch the data; the package converts it. There is no HTTP inside the l
 - **`write_ifc(products, path, ...)`** — IFC from product dicts you built yourself
 - **`trees_to_ifc(trees, ifc_path, ...)`** — trunk + crown meshes → IFC (TreesGenericApp path). Optional ``drape_vertices`` / ``drape_faces`` sets ``z = 0`` from the DGM triangle (else nearest vertex).
 - **`terrain_to_ifc(vertices, faces, ifc_path, ...)`** — triangulated DGM → IFC (TerrainGenericApp write path)
+- **`boreholes_to_ifc(solids, ifc_path, ...)`** — one soil cylinder or groundwater square per dict → IFC (BoreholesGenericApp write path). Solids that share `borehole` become one `IfcElementAssembly`. Colour and transparency only, no material.
 
 ### Parse
 
@@ -211,6 +212,41 @@ from bimfabrikhh_core_rs.terrain_mapping import specs
 
 terrain_to_ifc(vertices, faces, "dgm.ifc", crs=etrs89_utm(32, vertical_datum="EPSG:7837"), psets=specs(), basepoint=(565000.0, 5933000.0))
 ```
+
+Boreholes (Python still parses BoreholeML and resolves the code lists; Rust builds the solids):
+
+```python
+from bimfabrikhh_core_rs import boreholes_to_ifc
+from bimfabrikhh_core_rs.crs import etrs89_utm
+
+boreholes_to_ifc(
+    [
+        {
+            "borehole": "B.52",
+            "name": "B52_1",
+            "position": (565084.16, 5934034.654, -1.64),  # lower edge
+            "height": 1.2,
+            "color": (255, 128, 0),  # DIN colour, 0..255 or 0..1
+            "layer": "_Bodenaufschluesse_orange",
+            "psets": {"Pset_Schicht": {"_Bodenart": "mS (Mittelsand)"}},
+        },
+        {
+            "borehole": "B.52",
+            "name": "B52_Grundwasser",
+            "kind": "square",
+            "position": (565084.16, 5934034.654, 4.2),
+            # size 3 m, transparency 0.8 and layer _Grundwasser are the defaults
+        },
+    ],
+    "boreholes.ifc",
+    crs=etrs89_utm(32, vertical_datum="EPSG:7837"),
+    basepoint=(565084.16, 5934034.654),
+)
+```
+
+Solids with the same `borehole` are parts of one `IfcElementAssembly` (`ObjectType` `Bohrung`) contained in the site. `borehole` is the group key (one borehole id). `borehole_name` is the assembly name and defaults to that key. `Pset_Aufschluss` and `Pset_Hyperlink` are written on that assembly and again on each part. Omit `borehole` and each solid is its own assembly. A cylinder stands on `position` with `height` along +Z (`radius` default 0.5 m). There is no `IfcMaterial`: colour and `transparency` (0 opaque, 1 fully transparent) are written on `IfcSurfaceStyleShading`. Omit `transparency` and a cylinder is opaque, a square is 0.8.
+
+`python examples/example_boreholes.py` reads the same `boreholes_wfs.xml.gz` as workflow `005_bohrungen_generic` (Innenstadt / Alster Umring) and writes `output/example_boreholes.ifc`.
 
 ## Property sets
 

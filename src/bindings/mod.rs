@@ -12,9 +12,10 @@ use crate::parse::parse_gml_file;
 use crate::srs::{cityjson_declared_crs, gml_declared_crs};
 use crate::types::ParsedBuilding;
 use convert::{
-    basepoint_psets_from_py, basepoint_size_from_py, basepoint_xyz, building_to_py, cityjson_source_from_py, colors_from_py, crs_from_py, gml_paths_from_py,
-    ifc_types_from_py, owner_from_py, pset_specs_from_py, products_from_py, terrain_from_py,
-    terrain_parts_from_py, trees_from_py, xy_transform_from_py, xyz_list_from_py, faces_from_py,
+    basepoint_psets_from_py, basepoint_size_from_py, basepoint_xyz, building_to_py,
+    cityjson_source_from_py, colors_from_py, crs_from_py, faces_from_py, gml_paths_from_py,
+    ifc_types_from_py, owner_from_py, products_from_py, pset_specs_from_py, solids_from_py,
+    terrain_from_py, terrain_parts_from_py, trees_from_py, xy_transform_from_py, xyz_list_from_py,
 };
 
 type Bbox = Option<(f64, f64, f64, f64)>;
@@ -29,6 +30,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(trees_to_ifc, m)?)?;
     m.add_function(wrap_pyfunction!(terrain_to_ifc, m)?)?;
     m.add_function(wrap_pyfunction!(terrain_parts_to_ifc, m)?)?;
+    m.add_function(wrap_pyfunction!(boreholes_to_ifc, m)?)?;
     m.add_function(wrap_pyfunction!(declared_crs, m)?)?;
     Ok(())
 }
@@ -83,7 +85,8 @@ fn export_options(
 #[pyfunction]
 fn declared_crs(py: Python<'_>, path: &str) -> PyResult<Option<PyObject>> {
     let declared = if path.to_ascii_lowercase().ends_with(".json") {
-        let text = std::fs::read_to_string(path).map_err(|e| PyValueError::new_err(format!("open {path}: {e}")))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| PyValueError::new_err(format!("open {path}: {e}")))?;
         cityjson_declared_crs(&parse_cityjson_json(&text).map_err(PyValueError::new_err)?)
     } else {
         gml_declared_crs(path).map_err(PyValueError::new_err)?
@@ -108,20 +111,33 @@ fn parse_gml(
     bbox_epsg: Bbox,
     progress: bool,
 ) -> PyResult<Vec<PyObject>> {
-    buildings_to_py(parse_gml_file(path, building_id_filter, bbox_epsg, progress))
+    buildings_to_py(parse_gml_file(
+        path,
+        building_id_filter,
+        bbox_epsg,
+        progress,
+    ))
 }
 
 /// Parse a CityJSON file into building dicts (same shape as ``parse_gml``).
 #[pyfunction]
 #[pyo3(signature = (path, building_id_filter=None, bbox_epsg=None))]
-fn parse_cityjson(path: &str, building_id_filter: Option<&str>, bbox_epsg: Bbox) -> PyResult<Vec<PyObject>> {
+fn parse_cityjson(
+    path: &str,
+    building_id_filter: Option<&str>,
+    bbox_epsg: Bbox,
+) -> PyResult<Vec<PyObject>> {
     buildings_to_py(parse_cityjson_file(path, building_id_filter, bbox_epsg))
 }
 
 /// Parse CityJSON from a string. HTTP stays outside this package.
 #[pyfunction]
 #[pyo3(signature = (text, building_id_filter=None, bbox_epsg=None))]
-fn parse_cityjson_text(text: &str, building_id_filter: Option<&str>, bbox_epsg: Bbox) -> PyResult<Vec<PyObject>> {
+fn parse_cityjson_text(
+    text: &str,
+    building_id_filter: Option<&str>,
+    bbox_epsg: Bbox,
+) -> PyResult<Vec<PyObject>> {
     buildings_to_py(parse_cityjson_str(text, building_id_filter, bbox_epsg))
 }
 
@@ -226,8 +242,15 @@ fn gml_to_ifc(
         basepoint_size,
     )?;
     let mut transform = transform.as_ref().map(xy_transform_from_py);
-    api::gml_to_ifc(&paths, ifc_path, building_id_filter, bbox_epsg, transform.as_mut().map(|f| f as _), &opts)
-        .map_err(PyValueError::new_err)
+    api::gml_to_ifc(
+        &paths,
+        ifc_path,
+        building_id_filter,
+        bbox_epsg,
+        transform.as_mut().map(|f| f as _),
+        &opts,
+    )
+    .map_err(PyValueError::new_err)
 }
 
 /// Parse CityJSON (file, files, or document text) and write one IFC. `mode` is `"typed"` or `"mesh"`.
@@ -280,8 +303,15 @@ fn cityjson_to_ifc(
         basepoint_size,
     )?;
     let mut transform = transform.as_ref().map(xy_transform_from_py);
-    api::cityjson_to_ifc(&src, ifc_path, building_id_filter, bbox_epsg, transform.as_mut().map(|f| f as _), &opts)
-        .map_err(PyValueError::new_err)
+    api::cityjson_to_ifc(
+        &src,
+        ifc_path,
+        building_id_filter,
+        bbox_epsg,
+        transform.as_mut().map(|f| f as _),
+        &opts,
+    )
+    .map_err(PyValueError::new_err)
 }
 
 /// Trunk + crown meshes → one IFC4 STEP file. Python still prepares records.
@@ -349,7 +379,8 @@ fn trees_to_ifc(
         basepoint_psets.as_ref(),
         basepoint_size,
     )?;
-    api::trees_to_ifc(&parsed, ifc_path, &opts, drape.as_deref(), faces.as_deref()).map_err(PyValueError::new_err)
+    api::trees_to_ifc(&parsed, ifc_path, &opts, drape.as_deref(), faces.as_deref())
+        .map_err(PyValueError::new_err)
 }
 
 /// One triangulated DGM mesh → IFC4 STEP. Python still samples / Delaunay.
@@ -458,4 +489,82 @@ fn terrain_parts_to_ifc(
         basepoint_size,
     )?;
     api::terrain_parts_to_ifc(&parsed, ifc_path, &opts).map_err(PyValueError::new_err)
+}
+
+/// Soil cylinders and groundwater squares → IFC4 STEP. Python still parses
+/// BoreholeML. One dict per solid, each an ``IfcBuildingElementProxy``.
+///
+/// Solids that share ``borehole`` become parts of one ``IfcElementAssembly``
+/// (object type ``Bohrung``) contained in the site. ``borehole_name`` is the
+/// assembly name (default: the key). Omit ``borehole`` and each solid stays
+/// its own assembly. ``Pset_Aufschluss`` and ``Pset_Hyperlink`` are written
+/// on the assembly and on each part.
+///
+/// A cylinder dict: ``name``, ``position`` ``(x, y, z)`` at the lower edge,
+/// ``height``, optional ``radius`` (default ``radius``), ``segments``,
+/// ``color`` (0..1 or 0..255), ``transparency`` (0 opaque, default 0),
+/// ``layer`` (default ``_Bodenaufschluesse``) and ``psets``
+/// ``{pset_name: {property: value}}``.
+///
+/// A groundwater square: ``kind="square"`` (or ``"groundwater"``), ``position``
+/// at the water level, ``size`` (default 3 m), transparency default 0.8,
+/// layer default ``_Grundwasser``.
+///
+/// No ``IfcMaterial``. Colour and transparency are written on
+/// ``IfcSurfaceStyleShading``. ``cad_layer=True`` assigns each solid's layer.
+#[pyfunction]
+#[pyo3(signature = (solids, ifc_path, project_name="Boreholes_Generic_Project", site_name="Boreholes_Generic_Site", crs=None, styles=true, cad_layer=true, owner_history=true, basepoint=None, owner=None, progress=false, basepoint_psets=None, basepoint_size=None, radius=0.5, segments=16, square_size=3.0))]
+#[allow(clippy::too_many_arguments)]
+fn boreholes_to_ifc(
+    solids: Bound<'_, PyList>,
+    ifc_path: &str,
+    project_name: &str,
+    site_name: &str,
+    crs: Option<Bound<'_, PyAny>>,
+    styles: bool,
+    cad_layer: bool,
+    owner_history: bool,
+    basepoint: Option<Bound<'_, PyTuple>>,
+    owner: Option<Bound<'_, PyAny>>,
+    progress: bool,
+    basepoint_psets: Option<Bound<'_, PyAny>>,
+    basepoint_size: Option<f64>,
+    radius: f64,
+    segments: u32,
+    square_size: f64,
+) -> PyResult<String> {
+    if !(radius.is_finite() && radius > 0.0) {
+        return Err(PyValueError::new_err(format!(
+            "radius must be > 0, got {radius}"
+        )));
+    }
+    if !(square_size.is_finite() && square_size > 0.0) {
+        return Err(PyValueError::new_err(format!(
+            "square_size must be > 0, got {square_size}"
+        )));
+    }
+    if segments < 3 {
+        return Err(PyValueError::new_err(format!(
+            "segments must be >= 3, got {segments}"
+        )));
+    }
+    let parsed = solids_from_py(&solids, radius, segments, square_size)?;
+    let opts = export_options(
+        "mesh",
+        project_name,
+        site_name,
+        crs.as_ref(),
+        styles,
+        cad_layer,
+        owner_history,
+        basepoint,
+        None,
+        None,
+        None,
+        owner.as_ref(),
+        progress,
+        basepoint_psets.as_ref(),
+        basepoint_size,
+    )?;
+    api::boreholes_to_ifc(&parsed, ifc_path, &opts).map_err(PyValueError::new_err)
 }

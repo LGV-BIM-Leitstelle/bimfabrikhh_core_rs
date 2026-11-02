@@ -124,8 +124,12 @@ pub fn write_ifc_file(
     }
     let file = File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
     let mut w = BufWriter::new(file);
-    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("out.ifc");
-    write_ifc(&mut w, buildings, opts, file_name).map_err(|e| format!("write {}: {e}", path.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("out.ifc");
+    write_ifc(&mut w, buildings, opts, file_name)
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
     w.flush().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -191,6 +195,7 @@ fn write_item_style<W: Write>(
     id: &mut Ids,
     faceset: u32,
     rgb: [f64; 3],
+    transparency: f64,
 ) -> std::io::Result<()> {
     let col = id.next();
     let shading = id.next();
@@ -203,10 +208,56 @@ fn write_item_style<W: Write>(
         g = format_real(rgb[1]),
         b = format_real(rgb[2]),
     )?;
-    writeln!(w, "#{shading}=IFCSURFACESTYLESHADING(#{col},0.);")?;
+    writeln!(
+        w,
+        "#{shading}=IFCSURFACESTYLESHADING(#{col},{t});",
+        t = format_real(style_transparency(transparency)),
+    )?;
     writeln!(w, "#{style}=IFCSURFACESTYLE('Style',.BOTH.,(#{shading}));")?;
     writeln!(w, "#{item}=IFCSTYLEDITEM(#{faceset},(#{style}),$);")?;
     Ok(())
+}
+
+/// 0 opaque, 1 fully transparent. A non-finite value is written as opaque.
+fn style_transparency(t: f64) -> f64 {
+    if t.is_finite() {
+        t.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+struct LayerBucket {
+    items: Vec<String>,
+    rgb: [f64; 3],
+    transparency: f64,
+}
+
+struct StyledFace {
+    faceset: u32,
+    layer: Option<String>,
+    color: Option<[f64; 3]>,
+    transparency: f64,
+}
+
+fn push_layer(
+    layers: &mut BTreeMap<(String, i64), LayerBucket>,
+    name: String,
+    rgb: [f64; 3],
+    transparency: f64,
+    item: String,
+) {
+    let transparency = style_transparency(transparency);
+    let key = (name, (transparency * 1_000_000.0).round() as i64);
+    layers
+        .entry(key)
+        .or_insert_with(|| LayerBucket {
+            items: Vec::new(),
+            rgb,
+            transparency,
+        })
+        .items
+        .push(item);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -221,12 +272,13 @@ fn write_product_geom<W: Write>(
     product: &Product,
     pi: usize,
     styles: bool,
-) -> std::io::Result<(u32, Vec<(u32, Option<String>, Option<[f64; 3]>)>)> {
+) -> std::io::Result<(u32, Vec<StyledFace>)> {
     let primary = ProductPart {
         vertices: product.vertices.clone(),
         faces: product.faces.clone(),
         color: product.color,
         layer: product.layer.clone(),
+        transparency: product.transparency,
     };
     let mut parts = vec![primary];
     parts.extend(product.extra.iter().cloned());
@@ -236,7 +288,12 @@ fn write_product_geom<W: Write>(
     for part in &parts {
         let faceset = write_mesh_part(w, id, part, styles)?;
         item_refs.push(format!("#{faceset}"));
-        layer_hits.push((faceset, part.layer.clone(), part.color));
+        layer_hits.push(StyledFace {
+            faceset,
+            layer: part.layer.clone(),
+            color: part.color,
+            transparency: part.transparency,
+        });
     }
 
     let place = if let Some([x, y, z]) = product.placement {
@@ -276,6 +333,44 @@ fn write_product_geom<W: Write>(
     Ok((prod, layer_hits))
 }
 
+fn write_element_assembly<W: Write>(
+    w: &mut W,
+    id: &mut Ids,
+    site_place: u32,
+    dir_z: u32,
+    dir_x: u32,
+    owner: &str,
+    bldg: &BuildingExport,
+) -> std::io::Result<u32> {
+    let place = if let Some([x, y, z]) = bldg.placement {
+        let pt = id.next();
+        let axis = id.next();
+        let loc = id.next();
+        writeln!(
+            w,
+            "#{pt}=IFCCARTESIANPOINT(({},{},{}));",
+            format_real(x),
+            format_real(y),
+            format_real(z),
+        )?;
+        writeln!(w, "#{axis}=IFCAXIS2PLACEMENT3D(#{pt},#{dir_z},#{dir_x});")?;
+        writeln!(w, "#{loc}=IFCLOCALPLACEMENT(#{site_place},#{axis});")?;
+        loc
+    } else {
+        site_place
+    };
+    let asm = id.next();
+    // IFC4 attribute order after Tag: AssemblyPlace, then PredefinedType.
+    // USERDEFINED requires ObjectType, which is 'Bohrung'.
+    writeln!(
+        w,
+        "#{asm}=IFCELEMENTASSEMBLY({gid},{owner}{name},$,'Bohrung',#{place},$,$,.SITE.,.USERDEFINED.);",
+        gid = step_str(&ifc_gid(&format!("asm-{}", bldg.id))),
+        name = step_str(&bldg.display_name),
+    )?;
+    Ok(asm)
+}
+
 fn write_mesh_part<W: Write>(
     w: &mut W,
     id: &mut Ids,
@@ -286,7 +381,14 @@ fn write_mesh_part<W: Write>(
     let pts = part
         .vertices
         .iter()
-        .map(|p| format!("({},{},{})", format_real(p[0]), format_real(p[1]), format_real(p[2])))
+        .map(|p| {
+            format!(
+                "({},{},{})",
+                format_real(p[0]),
+                format_real(p[1]),
+                format_real(p[2])
+            )
+        })
         .collect::<Vec<_>>()
         .join(",");
     writeln!(w, "#{list}=IFCCARTESIANPOINTLIST3D(({pts}));")?;
@@ -296,17 +398,28 @@ fn write_mesh_part<W: Write>(
         let fid = id.next();
         match face {
             Face::Simple(idx) => {
-                let coords = idx.iter().map(|i| (i + 1).to_string()).collect::<Vec<_>>().join(",");
+                let coords = idx
+                    .iter()
+                    .map(|i| (i + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
                 writeln!(w, "#{fid}=IFCINDEXEDPOLYGONALFACE(({coords}));")?;
             }
             Face::WithVoids { outer, inners } => {
-                let outer_s = outer.iter().map(|i| (i + 1).to_string()).collect::<Vec<_>>().join(",");
+                let outer_s = outer
+                    .iter()
+                    .map(|i| (i + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
                 let inners_s = inners
                     .iter()
                     .map(|ring| {
                         format!(
                             "({})",
-                            ring.iter().map(|i| (i + 1).to_string()).collect::<Vec<_>>().join(",")
+                            ring.iter()
+                                .map(|i| (i + 1).to_string())
+                                .collect::<Vec<_>>()
+                                .join(",")
                         )
                     })
                     .collect::<Vec<_>>()
@@ -329,7 +442,7 @@ fn write_mesh_part<W: Write>(
 
     if styles {
         if let Some(rgb) = part.color {
-            write_item_style(w, id, faceset, rgb)?;
+            write_item_style(w, id, faceset, rgb, part.transparency)?;
         }
     }
     Ok(faceset)
@@ -377,7 +490,10 @@ fn write_ifc<W: Write>(
     let author = ohn.organization.clone();
     // The buildingSMART Validation Service accepts ReferenceView_V1.2 for IFC4;
     // CoordinationView is IFC2x3 only and Ifc4ReferenceView fails HEADER_03.
-    writeln!(w, "FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');")?;
+    writeln!(
+        w,
+        "FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');"
+    )?;
     writeln!(
         w,
         "FILE_NAME({name},{stamp},({author}),({org}),{pre},{sys},{auth});",
@@ -450,7 +566,10 @@ fn write_ifc<W: Write>(
     writeln!(w, "#{origin}=IFCCARTESIANPOINT((0.,0.,0.));")?;
     writeln!(w, "#{dir_z}=IFCDIRECTION((0.,0.,1.));")?;
     writeln!(w, "#{dir_x}=IFCDIRECTION((1.,0.,0.));")?;
-    writeln!(w, "#{axis}=IFCAXIS2PLACEMENT3D(#{origin},#{dir_z},#{dir_x});")?;
+    writeln!(
+        w,
+        "#{axis}=IFCAXIS2PLACEMENT3D(#{origin},#{dir_z},#{dir_x});"
+    )?;
     writeln!(w, "#{origin2}=IFCCARTESIANPOINT((0.,0.));")?;
     writeln!(w, "#{dir2}=IFCDIRECTION((1.,0.));")?;
     writeln!(w, "#{axis2}=IFCAXIS2PLACEMENT2D(#{origin2},#{dir2});")?;
@@ -492,7 +611,10 @@ fn write_ifc<W: Write>(
             projection = step_opt(&projected.map_projection),
             zone = step_opt(&projected.map_zone),
         )?;
-        writeln!(w, "#{mapconv}=IFCMAPCONVERSION(#{ctx},#{crs},0.,0.,0.,1.,0.,1.);")?;
+        writeln!(
+            w,
+            "#{mapconv}=IFCMAPCONVERSION(#{ctx},#{crs},0.,0.,0.,1.,0.,1.);"
+        )?;
     }
     writeln!(
         w,
@@ -504,7 +626,7 @@ fn write_ifc<W: Write>(
     let mut written = 0usize;
     let mut building_ids = Vec::new();
     let mut city_product_refs: Vec<String> = Vec::new();
-    let mut layer_items: BTreeMap<String, (Vec<String>, [f64; 3])> = BTreeMap::new();
+    let mut layer_items: BTreeMap<(String, i64), LayerBucket> = BTreeMap::new();
 
     let city_bid = if opts.contain_in_site {
         None
@@ -542,16 +664,31 @@ fn write_ifc<W: Write>(
 
         let mut product_refs = Vec::new();
         for (pi, product) in bldg.products.iter().enumerate() {
-            let (prod, hits) =
-                write_product_geom(w, &mut id, sub, place, dir_z, dir_x, &owner, product, pi, opts.styles)?;
+            let (prod, hits) = write_product_geom(
+                w,
+                &mut id,
+                sub,
+                place,
+                dir_z,
+                dir_x,
+                &owner,
+                product,
+                pi,
+                opts.styles,
+            )?;
             write_psets(w, &mut id, &owner, prod, &product.psets, &product.name)?;
             product_refs.push(format!("#{prod}"));
             if opts.cad_layer {
-                for (faceset, layer, color) in hits {
-                    let name = layer.unwrap_or_else(|| "_BIM_Stadtmodell".into());
-                    let rgb = color.unwrap_or(DEFAULT_RGB);
-                    let entry = layer_items.entry(name).or_insert_with(|| (Vec::new(), rgb));
-                    entry.0.push(format!("#{faceset}"));
+                for hit in hits {
+                    let name = hit.layer.unwrap_or_else(|| "_BIM_Stadtmodell".into());
+                    let rgb = hit.color.unwrap_or(DEFAULT_RGB);
+                    push_layer(
+                        &mut layer_items,
+                        name,
+                        rgb,
+                        hit.transparency,
+                        format!("#{}", hit.faceset),
+                    );
                 }
             }
             written += 1;
@@ -559,16 +696,32 @@ fn write_ifc<W: Write>(
                 eprint!("\r  write_ifc: {written:>5}/{total_products} products");
             }
         }
+        let contained = if bldg.assembly {
+            let asm = write_element_assembly(w, &mut id, place, dir_z, dir_x, &owner, bldg)?;
+            write_psets(w, &mut id, &owner, asm, &bldg.psets, &bldg.id)?;
+            if !product_refs.is_empty() {
+                let rel = id.next();
+                writeln!(
+                    w,
+                    "#{rel}=IFCRELAGGREGATES({gid},{owner}$,$,#{asm},({items}));",
+                    gid = step_str(&ifc_gid(&format!("rel-agg-{}", bldg.id))),
+                    items = product_refs.join(","),
+                )?;
+            }
+            vec![format!("#{asm}")]
+        } else {
+            product_refs
+        };
         if opts.contain_in_site || opts.city_model {
-            city_product_refs.extend(product_refs);
-        } else if !product_refs.is_empty() {
+            city_product_refs.extend(contained);
+        } else if !contained.is_empty() {
             let bid = bid.expect("building id when not contain_in_site");
             let rel = id.next();
             writeln!(
                 w,
                 "#{rel}=IFCRELCONTAINEDINSPATIALSTRUCTURE({gid},{owner}$,$,({items}),#{bid});",
                 gid = step_str(&ifc_gid(&format!("rel-contain-{}", bldg.id))),
-                items = product_refs.join(","),
+                items = contained.join(","),
             )?;
         }
     }
@@ -596,20 +749,35 @@ fn write_ifc<W: Write>(
     }
 
     if let Some(xyz) = opts.basepoint {
-        let (bp, body, marks) =
-            write_basepoint(w, &mut id, sub, place, (dir_z, dir_x), &owner, xyz, opts.basepoint_size, opts.styles)?;
+        let (bp, body, marks) = write_basepoint(
+            w,
+            &mut id,
+            sub,
+            place,
+            (dir_z, dir_x),
+            &owner,
+            xyz,
+            opts.basepoint_size,
+            opts.styles,
+        )?;
         write_psets(w, &mut id, &owner, bp, &opts.basepoint_psets, "basepoint")?;
         // Always layered, independent of `cad_layer`, like the BIMFabrik Python Nullpunktobjekt.
-        layer_items
-            .entry(BASEPOINT_LAYER.into())
-            .or_insert_with(|| (Vec::new(), BASEPOINT_RGB))
-            .0
-            .push(format!("#{body}"));
-        layer_items
-            .entry(BASEPOINT_ARROW_LAYER.into())
-            .or_insert_with(|| (Vec::new(), BASEPOINT_ARROW_RGB))
-            .0
-            .extend(marks.iter().map(|m| format!("#{m}")));
+        push_layer(
+            &mut layer_items,
+            BASEPOINT_LAYER.into(),
+            BASEPOINT_RGB,
+            0.0,
+            format!("#{body}"),
+        );
+        for mark in &marks {
+            push_layer(
+                &mut layer_items,
+                BASEPOINT_ARROW_LAYER.into(),
+                BASEPOINT_ARROW_RGB,
+                0.0,
+                format!("#{mark}"),
+            );
+        }
         let rel = id.next();
         writeln!(
             w,
@@ -619,15 +787,15 @@ fn write_ifc<W: Write>(
     }
 
     if !layer_items.is_empty() {
-        for (name, (items, rgb)) in &layer_items {
-            if items.is_empty() {
+        for ((name, _), bucket) in &layer_items {
+            if bucket.items.is_empty() {
                 continue;
             }
             let col = id.next();
             let shade = id.next();
             let style = id.next();
             let layer = id.next();
-            let [r, g, b] = *rgb;
+            let [r, g, b] = bucket.rgb;
             writeln!(
                 w,
                 "#{col}=IFCCOLOURRGB('LayerColor',{r},{g},{b});",
@@ -635,20 +803,31 @@ fn write_ifc<W: Write>(
                 g = format_real(g),
                 b = format_real(b),
             )?;
-            writeln!(w, "#{shade}=IFCSURFACESTYLESHADING(#{col},0.);")?;
-            writeln!(w, "#{style}=IFCSURFACESTYLE('LayerStyle',.POSITIVE.,(#{shade}));")?;
+            writeln!(
+                w,
+                "#{shade}=IFCSURFACESTYLESHADING(#{col},{t});",
+                t = format_real(bucket.transparency),
+            )?;
+            writeln!(
+                w,
+                "#{style}=IFCSURFACESTYLE('LayerStyle',.POSITIVE.,(#{shade}));"
+            )?;
             writeln!(
                 w,
                 "#{layer}=IFCPRESENTATIONLAYERWITHSTYLE({layer_name},$,({items}),$,.T.,.F.,.F.,(#{style}));",
                 layer_name = step_str(name),
-                items = items.join(","),
+                items = bucket.items.join(","),
             )?;
         }
     }
 
     if !building_ids.is_empty() {
         let rel = id.next();
-        let items = building_ids.iter().map(|i| format!("#{i}")).collect::<Vec<_>>().join(",");
+        let items = building_ids
+            .iter()
+            .map(|i| format!("#{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
         writeln!(
             w,
             "#{rel}=IFCRELAGGREGATES({gid},{owner}$,$,#{site_id},({items}));",
@@ -671,25 +850,54 @@ fn write_mesh_faceset<W: Write>(w: &mut W, id: &mut Ids, mesh: &Mesh) -> std::io
     let coords = mesh
         .points
         .iter()
-        .map(|p| format!("({},{},{})", format_real(p[0]), format_real(p[1]), format_real(p[2])))
+        .map(|p| {
+            format!(
+                "({},{},{})",
+                format_real(p[0]),
+                format_real(p[1]),
+                format_real(p[2])
+            )
+        })
         .collect::<Vec<_>>()
         .join(",");
     writeln!(w, "#{list}=IFCCARTESIANPOINTLIST3D(({coords}));")?;
     // IFC indices are 1-based.
-    let ring = |r: &[usize]| r.iter().map(|i| (i + 1).to_string()).collect::<Vec<_>>().join(",");
+    let ring = |r: &[usize]| {
+        r.iter()
+            .map(|i| (i + 1).to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     let mut faces = Vec::with_capacity(mesh.faces.len());
     for face in &mesh.faces {
         let fid = id.next();
         if face.voids.is_empty() {
-            writeln!(w, "#{fid}=IFCINDEXEDPOLYGONALFACE(({}));", ring(&face.outer))?;
+            writeln!(
+                w,
+                "#{fid}=IFCINDEXEDPOLYGONALFACE(({}));",
+                ring(&face.outer)
+            )?;
         } else {
-            let voids = face.voids.iter().map(|v| format!("({})", ring(v))).collect::<Vec<_>>().join(",");
-            writeln!(w, "#{fid}=IFCINDEXEDPOLYGONALFACEWITHVOIDS(({}),({voids}));", ring(&face.outer))?;
+            let voids = face
+                .voids
+                .iter()
+                .map(|v| format!("({})", ring(v)))
+                .collect::<Vec<_>>()
+                .join(",");
+            writeln!(
+                w,
+                "#{fid}=IFCINDEXEDPOLYGONALFACEWITHVOIDS(({}),({voids}));",
+                ring(&face.outer)
+            )?;
         }
         faces.push(format!("#{fid}"));
     }
     let faceset = id.next();
-    writeln!(w, "#{faceset}=IFCPOLYGONALFACESET(#{list},$,({}),$);", faces.join(","))?;
+    writeln!(
+        w,
+        "#{faceset}=IFCPOLYGONALFACESET(#{list},$,({}),$);",
+        faces.join(",")
+    )?;
     Ok(faceset)
 }
 
@@ -721,13 +929,13 @@ fn write_basepoint<W: Write>(
     writeln!(w, "#{place}=IFCLOCALPLACEMENT(#{site_place},#{axis});")?;
     let body = write_mesh_faceset(w, id, &geometry.body)?;
     if styles {
-        write_item_style(w, id, body, BASEPOINT_RGB)?;
+        write_item_style(w, id, body, BASEPOINT_RGB, 0.0)?;
     }
     let mut marks = Vec::with_capacity(geometry.marks.len());
     for mark in &geometry.marks {
         let faceset = write_mesh_faceset(w, id, mark)?;
         if styles {
-            write_item_style(w, id, faceset, BASEPOINT_ARROW_RGB)?;
+            write_item_style(w, id, faceset, BASEPOINT_ARROW_RGB, 0.0)?;
         }
         marks.push(faceset);
     }
@@ -739,7 +947,10 @@ fn write_basepoint<W: Write>(
         .map(|i| format!("#{i}"))
         .collect::<Vec<_>>()
         .join(",");
-    writeln!(w, "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',({items}));")?;
+    writeln!(
+        w,
+        "#{shape}=IFCSHAPEREPRESENTATION(#{sub},'Body','Tessellation',({items}));"
+    )?;
     writeln!(w, "#{pds}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{shape}));")?;
     writeln!(
         w,
@@ -763,7 +974,8 @@ mod tests {
 
     #[test]
     fn header_declares_the_ifc4_reference_view() {
-        assert!(step_text(None).contains("FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');"));
+        assert!(step_text(None)
+            .contains("FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');"));
     }
 
     #[test]
@@ -774,7 +986,10 @@ mod tests {
     }
 
     fn step_text(crs: Option<ProjectedCrs>) -> String {
-        let opts = WriteOptions { crs, ..WriteOptions::default() };
+        let opts = WriteOptions {
+            crs,
+            ..WriteOptions::default()
+        };
         let mut out = Vec::new();
         write_ifc(&mut out, &[], &opts, "test.ifc").unwrap();
         String::from_utf8(out).unwrap()

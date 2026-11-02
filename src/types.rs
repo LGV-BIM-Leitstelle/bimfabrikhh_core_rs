@@ -29,7 +29,10 @@ pub struct ParsedBuilding {
 #[derive(Clone, Debug)]
 pub enum Face {
     Simple(Vec<u32>),
-    WithVoids { outer: Vec<u32>, inners: Vec<Vec<u32>> },
+    WithVoids {
+        outer: Vec<u32>,
+        inners: Vec<Vec<u32>>,
+    },
 }
 
 /// IFC type of a property value. The caller declares it; Rust never guesses it
@@ -95,7 +98,9 @@ impl PropValue {
             ValueType::Label => PropValue::Label(text.to_string()),
             ValueType::Text => PropValue::Text(text.to_string()),
             ValueType::Integer => PropValue::Integer(
-                text.trim().parse().map_err(|_| format!("'{text}' is not an integer"))?,
+                text.trim()
+                    .parse()
+                    .map_err(|_| format!("'{text}' is not an integer"))?,
             ),
             ValueType::Real => PropValue::Real(number()?),
             ValueType::LengthMeasure => PropValue::LengthMeasure(number()?),
@@ -115,7 +120,9 @@ impl std::fmt::Display for PropValue {
             PropValue::Label(s) | PropValue::Text(s) => f.write_str(s),
             PropValue::Integer(i) => write!(f, "{i}"),
             PropValue::Boolean(b) => write!(f, "{b}"),
-            PropValue::Real(v) | PropValue::LengthMeasure(v) | PropValue::AreaMeasure(v) => write!(f, "{v}"),
+            PropValue::Real(v) | PropValue::LengthMeasure(v) | PropValue::AreaMeasure(v) => {
+                write!(f, "{v}")
+            }
         }
     }
 }
@@ -130,7 +137,10 @@ pub struct Pset {
 
 impl Pset {
     pub fn new(name: impl Into<String>, properties: Vec<(String, PropValue)>) -> Self {
-        Self { name: name.into(), properties }
+        Self {
+            name: name.into(),
+            properties,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -154,6 +164,8 @@ pub struct ProductPart {
     pub faces: Vec<Face>,
     pub color: Option<[f64; 3]>,
     pub layer: Option<String>,
+    /// `IfcSurfaceStyleShading` transparency: 0 opaque, 1 fully transparent.
+    pub transparency: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +178,8 @@ pub struct Product {
     pub psets: Vec<Pset>,
     pub color: Option<[f64; 3]>,
     pub layer: Option<String>,
+    /// `IfcSurfaceStyleShading` transparency: 0 opaque, 1 fully transparent.
+    pub transparency: f64,
     pub extra: Vec<ProductPart>,
     /// When set, geometry stays local and this is written as `IfcLocalPlacement`.
     pub placement: Option<[f64; 3]>,
@@ -177,6 +191,10 @@ pub struct BuildingExport {
     pub display_name: String,
     pub psets: Vec<Pset>,
     pub products: Vec<Product>,
+    /// Products are parts of an `IfcElementAssembly` contained in the site.
+    pub assembly: bool,
+    /// Assembly placement. Part placements stay absolute against the site.
+    pub placement: Option<[f64; 3]>,
 }
 
 pub fn strip_close(pts: &mut Vec<[f64; 3]>) {
@@ -206,11 +224,18 @@ pub const FALLBACK_IFC_TYPE: &str = "IfcBuildingElementProxy";
 /// Look up a CityGML/CityJSON surface (or `"Building"` in mesh mode).
 /// Unmapped keys become [`FALLBACK_IFC_TYPE`] — there is no built-in CityGML map.
 pub fn lookup_ifc_type<'a>(map: &'a HashMap<String, String>, key: &str) -> &'a str {
-    map.get(key).map(String::as_str).unwrap_or(FALLBACK_IFC_TYPE)
+    map.get(key)
+        .map(String::as_str)
+        .unwrap_or(FALLBACK_IFC_TYPE)
 }
 
 pub fn building_display_name(b: &ParsedBuilding) -> String {
-    match b.gml_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    match b
+        .gml_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(name) => format!("{name}_{}", b.id),
         None => b.id.clone(),
     }

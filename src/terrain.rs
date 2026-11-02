@@ -124,6 +124,7 @@ pub fn terrain_to_product(mesh: &TerrainInput) -> Result<Product, String> {
         psets: mesh.psets.clone(),
         color: Some(mesh.color),
         layer: mesh.layer.clone(),
+        transparency: 0.0,
         extra: Vec::new(),
         placement: mesh.placement,
     })
@@ -131,7 +132,9 @@ pub fn terrain_to_product(mesh: &TerrainInput) -> Result<Product, String> {
 
 pub fn terrain_attr_map(mesh: &TerrainInput) -> HashMap<String, String> {
     let mut attrs = mesh.attributes.clone();
-    attrs.entry("name".into()).or_insert_with(|| mesh.name.clone());
+    attrs
+        .entry("name".into())
+        .or_insert_with(|| mesh.name.clone());
     attrs
 }
 

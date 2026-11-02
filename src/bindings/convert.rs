@@ -7,7 +7,11 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyList, PyTuple};
 
 use crate::api::CityJsonSource;
-use crate::color::{Colors, BASEPOINT_SIZE, CROWN_RGB, TERRAIN_RGB, TRUNK_RGB};
+use crate::borehole::{BoreholeSolid, SolidKind, GROUNDWATER_TRANSPARENCY};
+use crate::color::{
+    Colors, BASEPOINT_SIZE, BOREHOLE_UNDEFINED_RGB, CROWN_RGB, GROUNDWATER_RGB, TERRAIN_RGB,
+    TRUNK_RGB,
+};
 use crate::ifc::{OwnerIdentity, ProjectedCrs};
 use crate::psetspec::{AttrKey, Catalog, PsetSpec, QtyKey, Scope, Value};
 use crate::terrain::{TerrainInput, TERRAIN_LAYER};
@@ -31,7 +35,13 @@ pub fn building_to_py(py: Python<'_>, b: &ParsedBuilding) -> PyResult<PyObject> 
     let bounds = PyList::empty(py);
     for bd in &b.boundaries {
         let e = PyDict::new(py);
-        e.set_item("ring", bd.ring.iter().map(|p| (p[0], p[1], p[2])).collect::<Vec<_>>())?;
+        e.set_item(
+            "ring",
+            bd.ring
+                .iter()
+                .map(|p| (p[0], p[1], p[2]))
+                .collect::<Vec<_>>(),
+        )?;
         e.set_item(
             "interior_rings",
             bd.interiors
@@ -68,10 +78,18 @@ pub fn product_from_py(item: &Bound<'_, PyDict>) -> PyResult<Product> {
     let vertices_raw: Vec<Vec<f64>> = dict_req(item, "vertices")?;
     let vertices = vertices_raw
         .into_iter()
-        .map(|p| if p.len() < 3 { [0.0, 0.0, 0.0] } else { [p[0], p[1], p[2]] })
+        .map(|p| {
+            if p.len() < 3 {
+                [0.0, 0.0, 0.0]
+            } else {
+                [p[0], p[1], p[2]]
+            }
+        })
         .collect();
     let mut faces = Vec::new();
-    let faces_obj = item.get_item("faces")?.ok_or_else(|| PyValueError::new_err("missing key 'faces'"))?;
+    let faces_obj = item
+        .get_item("faces")?
+        .ok_or_else(|| PyValueError::new_err("missing key 'faces'"))?;
     if let Ok(simple) = faces_obj.extract::<Vec<Vec<u32>>>() {
         faces.extend(simple.into_iter().map(Face::Simple));
     } else if let Ok(list) = faces_obj.downcast::<PyList>() {
@@ -98,6 +116,7 @@ pub fn product_from_py(item: &Bound<'_, PyDict>) -> PyResult<Product> {
         psets,
         color: color_from_py(item)?,
         layer: None,
+        transparency: 0.0,
         extra: Vec::new(),
         placement: None,
     })
@@ -254,12 +273,32 @@ pub fn owner_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<OwnerIdentity> 
              (see bimfabrikhh_core_rs.owner.OwnerIdentity)",
         ));
     };
-    overlay_owner_field(&mut owner.family_name, &d, &["family_name", "family", "FamilyName"])?;
-    overlay_owner_field(&mut owner.given_name, &d, &["given_name", "given", "GivenName"])?;
-    overlay_owner_field(&mut owner.organization, &d, &["organization", "org", "Organisation"])?;
-    overlay_owner_field(&mut owner.application, &d, &["application", "app", "ApplicationFullName"])?;
+    overlay_owner_field(
+        &mut owner.family_name,
+        &d,
+        &["family_name", "family", "FamilyName"],
+    )?;
+    overlay_owner_field(
+        &mut owner.given_name,
+        &d,
+        &["given_name", "given", "GivenName"],
+    )?;
+    overlay_owner_field(
+        &mut owner.organization,
+        &d,
+        &["organization", "org", "Organisation"],
+    )?;
+    overlay_owner_field(
+        &mut owner.application,
+        &d,
+        &["application", "app", "ApplicationFullName"],
+    )?;
     overlay_owner_field(&mut owner.version, &d, &["version", "Version"])?;
-    overlay_owner_field(&mut owner.identifier, &d, &["identifier", "id", "ApplicationIdentifier"])?;
+    overlay_owner_field(
+        &mut owner.identifier,
+        &d,
+        &["identifier", "id", "ApplicationIdentifier"],
+    )?;
     overlay_owner_field(
         &mut owner.preprocessor,
         &d,
@@ -336,7 +375,9 @@ pub fn basepoint_size_from_py(size: Option<f64>) -> PyResult<f64> {
     match size {
         None => Ok(BASEPOINT_SIZE),
         Some(s) if s.is_finite() && s > 0.0 => Ok(s),
-        Some(s) => Err(PyValueError::new_err(format!("basepoint_size must be > 0, got {s}"))),
+        Some(s) => Err(PyValueError::new_err(format!(
+            "basepoint_size must be > 0, got {s}"
+        ))),
     }
 }
 
@@ -384,6 +425,100 @@ pub fn trees_from_py(trees: &Bound<'_, PyList>) -> PyResult<Vec<TreeInput>> {
     Ok(out)
 }
 
+pub fn solids_from_py(
+    solids: &Bound<'_, PyList>,
+    radius: f64,
+    segments: u32,
+    square_size: f64,
+) -> PyResult<Vec<BoreholeSolid>> {
+    let mut out = Vec::new();
+    for (i, item) in solids.iter().enumerate() {
+        let d = item
+            .downcast::<PyDict>()
+            .map_err(|_| PyValueError::new_err("boreholes_to_ifc expects a list of dicts"))?;
+        let kind = solid_kind_from_py(d)?;
+        let name: String = dict_or(
+            d,
+            "name",
+            match kind {
+                SolidKind::Cylinder => format!("Schicht_{:03}", i + 1),
+                SolidKind::Square => format!("Grundwasser_{:03}", i + 1),
+            },
+        );
+        let transparency = match d.get_item("transparency")? {
+            Some(v) if !v.is_none() => transparency_from_py(&v, &name)?,
+            _ => match kind {
+                SolidKind::Cylinder => 0.0,
+                SolidKind::Square => GROUNDWATER_TRANSPARENCY,
+            },
+        };
+        let color = match d.get_item("color")? {
+            Some(v) if !v.is_none() => rgb_style_from_py(&v)?,
+            _ => match kind {
+                SolidKind::Cylinder => BOREHOLE_UNDEFINED_RGB,
+                SolidKind::Square => GROUNDWATER_RGB,
+            },
+        };
+        let layer = match d.get_item("layer")? {
+            Some(v) if !v.is_none() => {
+                let text = any_to_string(&v)?;
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
+            }
+            _ => None,
+        };
+        let psets = match d.get_item("psets")? {
+            Some(v) if !v.is_none() => psets_from_py(&v)?,
+            _ => Vec::new(),
+        };
+        let borehole: String = dict_or(d, "borehole", String::new());
+        let borehole_name: String = dict_or(d, "borehole_name", String::new());
+        out.push(BoreholeSolid {
+            borehole,
+            borehole_name,
+            name,
+            kind,
+            position: xyz_from_py(d, "position")?,
+            height: dict_or(d, "height", 0.0),
+            size: dict_or(d, "size", square_size),
+            radius: dict_or(d, "radius", radius),
+            segments: dict_or(d, "segments", segments),
+            color,
+            transparency,
+            layer,
+            psets,
+        });
+    }
+    Ok(out)
+}
+
+fn solid_kind_from_py(d: &Bound<'_, PyDict>) -> PyResult<SolidKind> {
+    let kind: String = dict_or(d, "kind", "cylinder".into());
+    match kind.to_ascii_lowercase().as_str() {
+        "cylinder" => Ok(SolidKind::Cylinder),
+        "square" | "groundwater" => Ok(SolidKind::Square),
+        other => Err(PyValueError::new_err(format!(
+            "kind must be 'cylinder' or 'square', got {other:?}"
+        ))),
+    }
+}
+
+fn transparency_from_py(v: &Bound<'_, PyAny>, name: &str) -> PyResult<f64> {
+    let t: f64 = v
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{name}: transparency must be a number")))?;
+    if (0.0..=1.0).contains(&t) {
+        Ok(t)
+    } else {
+        Err(PyValueError::new_err(format!(
+            "{name}: transparency must be in 0..=1, got {t}"
+        )))
+    }
+}
+
 pub fn xyz_list_from_py(vertices: &Bound<'_, PyAny>) -> PyResult<Vec<[f64; 3]>> {
     let raw: Vec<Vec<f64>> = vertices
         .extract()
@@ -410,7 +545,9 @@ pub fn faces_from_py(faces: &Bound<'_, PyAny>) -> PyResult<Vec<Face>> {
             if let Ok(idx) = face.extract::<Vec<u32>>() {
                 mesh_faces.push(Face::Simple(idx));
             } else {
-                return Err(PyValueError::new_err("faces must be lists of vertex indices"));
+                return Err(PyValueError::new_err(
+                    "faces must be lists of vertex indices",
+                ));
             }
         }
         return Ok(mesh_faces);
@@ -422,13 +559,15 @@ fn xyz_from_py(d: &Bound<'_, PyDict>, key: &str) -> PyResult<[f64; 3]> {
     let v = d
         .get_item(key)?
         .ok_or_else(|| PyValueError::new_err(format!("missing key '{key}'")))?;
-    let nums: Vec<f64> = v.extract().map_err(|_| {
-        PyValueError::new_err(format!("{key} must be (x, y) or (x, y, z)"))
-    })?;
+    let nums: Vec<f64> = v
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{key} must be (x, y) or (x, y, z)")))?;
     match nums.len() {
         2 => Ok([nums[0], nums[1], 0.0]),
         3 => Ok([nums[0], nums[1], nums[2]]),
-        n => Err(PyValueError::new_err(format!("{key} needs 2 or 3 numbers, got {n}"))),
+        n => Err(PyValueError::new_err(format!(
+            "{key} needs 2 or 3 numbers, got {n}"
+        ))),
     }
 }
 
@@ -444,7 +583,10 @@ fn rgb_style_from_py(v: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
         .extract()
         .map_err(|_| PyValueError::new_err("color must be 3 numbers (0..1 or 0..255)"))?;
     if nums.len() != 3 {
-        return Err(PyValueError::new_err(format!("color needs 3 components, got {}", nums.len())));
+        return Err(PyValueError::new_err(format!(
+            "color needs 3 components, got {}",
+            nums.len()
+        )));
     }
     if nums.iter().any(|x| *x > 1.0) {
         Ok([nums[0] / 255.0, nums[1] / 255.0, nums[2] / 255.0])
@@ -472,7 +614,11 @@ pub fn terrain_from_py(
         _ => HashMap::new(),
     };
     Ok(TerrainInput {
-        name: if name.is_empty() { "DGM".into() } else { name.into() },
+        name: if name.is_empty() {
+            "DGM".into()
+        } else {
+            name.into()
+        },
         vertices: verts,
         faces: mesh_faces,
         color: rgb,
@@ -546,11 +692,17 @@ pub fn basepoint_xyz(basepoint: Option<Bound<'_, PyTuple>>) -> PyResult<Option<(
     let z: f64 = match t.len() {
         2 => 0.0,
         3 => t.get_item(2)?.extract()?,
-        n => return Err(PyValueError::new_err(format!("basepoint must be (x, y) or (x, y, z), got {n} values"))),
+        n => {
+            return Err(PyValueError::new_err(format!(
+                "basepoint must be (x, y) or (x, y, z), got {n} values"
+            )))
+        }
     };
     let (x, y): (f64, f64) = (t.get_item(0)?.extract()?, t.get_item(1)?.extract()?);
     if !(x.is_finite() && y.is_finite() && z.is_finite()) {
-        return Err(PyValueError::new_err("basepoint coordinates must be finite numbers"));
+        return Err(PyValueError::new_err(
+            "basepoint coordinates must be finite numbers",
+        ));
     }
     Ok(Some((x, y, z)))
 }
@@ -565,7 +717,9 @@ pub fn gml_paths_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
         }
         return Ok(list);
     }
-    Err(PyValueError::new_err("gml_path must be a str or a list of str"))
+    Err(PyValueError::new_err(
+        "gml_path must be a str or a list of str",
+    ))
 }
 
 fn err<T: std::fmt::Display>(e: T) -> PyErr {
@@ -685,7 +839,11 @@ fn spec_from_py(item: &Bound<'_, PyAny>) -> PyResult<PsetSpec> {
             "pset spec '{name}' has no properties"
         )));
     }
-    Ok(PsetSpec { name, scope, properties })
+    Ok(PsetSpec {
+        name,
+        scope,
+        properties,
+    })
 }
 
 /// Surface type → IFC entity. A plain dict, or an object with `to_wire()` /
@@ -733,9 +891,7 @@ pub fn pset_specs_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<PsetSp
     if obj.downcast::<PyDict>().is_ok() || obj.hasattr("to_wire")? {
         return Ok(vec![spec_from_py(obj)?]);
     }
-    obj.try_iter()?
-        .map(|item| spec_from_py(&item?))
-        .collect()
+    obj.try_iter()?.map(|item| spec_from_py(&item?)).collect()
 }
 
 /// A leading `{` marks a CityJSON document; anything else is a filesystem path.
@@ -752,5 +908,7 @@ pub fn cityjson_source_from_py(obj: &Bound<'_, PyAny>) -> PyResult<CityJsonSourc
         }
         return Ok(CityJsonSource::Paths(list));
     }
-    Err(PyValueError::new_err("source must be a path, a list of paths, or CityJSON text"))
+    Err(PyValueError::new_err(
+        "source must be a path, a list of paths, or CityJSON text",
+    ))
 }

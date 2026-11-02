@@ -124,7 +124,9 @@ pub fn drape_trees(trees: &mut [TreeInput], samples: &[[f64; 3]], faces: Option<
 /// Geometry plus caller attributes. Existing keys win over the derived ones.
 pub fn tree_attr_map(tree: &TreeInput) -> HashMap<String, String> {
     let mut attrs = tree.attributes.clone();
-    attrs.entry("name".into()).or_insert_with(|| tree.name.clone());
+    attrs
+        .entry("name".into())
+        .or_insert_with(|| tree.name.clone());
     attrs
         .entry("trunk_radius".into())
         .or_insert_with(|| tree.trunk_radius.to_string());
@@ -160,6 +162,7 @@ fn tree_to_product(tree: &TreeInput) -> Product {
                 .collect(),
             color: Some(tree.crown_color),
             layer: Some(CROWN_LAYER.into()),
+            transparency: 0.0,
         });
     }
 
@@ -172,6 +175,7 @@ fn tree_to_product(tree: &TreeInput) -> Product {
         psets: tree.psets.clone(),
         color: Some(tree.trunk_color),
         layer: Some(TRUNK_LAYER.into()),
+        transparency: 0.0,
         extra,
         placement: Some(tree.position),
     }
